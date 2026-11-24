@@ -184,11 +184,13 @@ class SellInBonoOut(BaseModel):
     tactical_id: Optional[int] = None  # a tactical's line: approved with its tactical, never alone
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
-    # What the worker generated from it so far: active purchases, their units and amount (in `moneda`;
-    # `montos_generados` per currency, in case a purchase was left in another one).
+    # What the worker generated from it so far: active purchases, their units and amount, in `moneda_generado` (the
+    # one currency it generated in: a cost % in its products' cost currency, a purchase in its invoice's, sell in
+    # incident S1/S3; `moneda` when it generated in several or none); `montos_generados` per currency.
     compras_activas: int
     unidades: int
     monto_generado: Decimal
+    moneda_generado: Optional[Moneda] = None
     montos_generados: list[SellInBonoMontoOut]
     # The shared cap (T24) and what is left of it after `unidades` / `monto_generado`; None: no such cap.
     tope_unidades: Optional[int]

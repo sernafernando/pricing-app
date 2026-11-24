@@ -1697,8 +1697,9 @@ def listar(db: Session, filtros: Filtros, page: int, page_size: int, hoy: Option
 
 
 def _usado_por_linea(ids: Select) -> Subquery:
-    """One row per child of the tacticals in `ids` (a subquery of ids): `(tactical_id, moneda, monto, tope)`, `monto`
-    being its `monto_usado` exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
+    """One row per child of the tacticals in `ids` (a subquery of ids) and currency it used (`montos_usados`: a cost
+    bonus's uncapped % in its steps' currencies, sell in incident S1; any other child, one): `(tactical_id, moneda,
+    monto, tope)`, `monto` being that entry exactly as `serializar` computes it (`_lineas_campanas`, `_lineas_bonos` through
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
     A cost bonus and an invoice total used what costo SI took off their invoices (T5 PR B, L26, `costo_si.generado`).
     `estimado` is always 0: each invoice's amount is at its own rate, nothing waits for the collection rate.
@@ -1707,8 +1708,11 @@ def _usado_por_linea(ids: Select) -> Subquery:
     child applies nothing, so it is left out (tacticals approval S12)."""
     cero = literal(0)
 
+    def tope_de(modelo):
+        return func.coalesce(modelo.tope_monto, case((modelo.tipo == "monto_total", modelo.monto_total)))
+
     def tope(modelo):
-        return func.coalesce(modelo.tope_monto, case((modelo.tipo == "monto_total", modelo.monto_total))).label("tope")
+        return tope_de(modelo).label("tope")
 
     campanas_ = (
         select(
@@ -1723,16 +1727,19 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .where(SellOutCampana.tactical_id.in_(ids), SellOutCampana.estado != aprobacion.PENDIENTE)
         .group_by(SellOutCampana.id)
     )
-    # A cost bonus: what costo SI took off its invoices, in the bonus's own currency, as `monto_generado`.
+    # A cost bonus: what costo SI took off its invoices, one row per currency it is in (an uncapped % in its steps'
+    # currency, sell in incident S1), as `montos_usados`; a 0 row in its own currency when no step got it. Its money
+    # cap is in its own currency only.
     costo = SellInBonoMarca.base == BASE_COSTO_VENTA
     de_bonos, de_compras = generado.de_tacticals(ids)
     por_bono = generado.por_bono(de_bonos).subquery()
+    moneda_bono = func.coalesce(por_bono.c.moneda, SellInBonoMarca.moneda)
     bonos_costo_ = (
         select(
             SellInBonoMarca.tactical_id,
-            SellInBonoMarca.moneda,
+            moneda_bono,
             func.round(func.coalesce(por_bono.c.monto, cero), 2),
-            tope(SellInBonoMarca),
+            case((moneda_bono == SellInBonoMarca.moneda, tope_de(SellInBonoMarca))),
             cero,
         )
         .select_from(SellInBonoMarca)
@@ -2093,6 +2100,21 @@ def _valor_usd(bono: SellInBonoMarca, tasas: dict[int, Decimal]) -> Optional[Dec
     return _cents(Decimal(bono.monto_total) / tasa)
 
 
+def _usado_de_bono(bono: SellInBonoMarca, fila: dict) -> tuple[str, Decimal, list[dict]]:
+    """A bonus child's `(moneda, monto_usado, montos_usados)` from its `bonos_crud.serializar` row, as
+    `_usado_por_linea` sums it. A cost bonus's uncapped % used what costo SI took off in its steps' currency (sell in
+    incident S1: "TP loyalty 18.18M ARS must read USD 11,648"): one entry per currency, and the line reads in the one
+    it used (a % with no money cap has no other amount in a currency). Any other bonus: its own currency, as before."""
+    por_moneda = {m["moneda"]: _cents(m["monto"]) for m in fila["montos_generados"]}
+    costo = bono.base == BASE_COSTO_VENTA
+    if not costo:
+        # An invoice bonus's line counts its purchases in its own currency only, as before.
+        por_moneda = {bono.moneda: por_moneda.get(bono.moneda, _cents(0))}
+    moneda = fila["moneda_generado"] if costo and bono.tipo == "porcentaje" and bono.tope_monto is None else bono.moneda
+    por_moneda.setdefault(moneda, _cents(0))
+    return moneda, por_moneda[moneda], [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())]
+
+
 def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
     bonos = db.query(SellInBonoMarca).filter(SellInBonoMarca.tactical_id.in_(ids)).all()
     tasas = {
@@ -2115,6 +2137,7 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
     )
     salida = []
     for bono, fila in zip(bonos, bonos_crud.serializar(db, bonos)):
+        moneda, usado, montos = _usado_de_bono(bono, fila)
         salida.append(
             {
                 "tactical_id": bono.tactical_id,
@@ -2136,11 +2159,12 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
                 }[bono.tipo],
                 "reparto_criterio": bono.reparto_criterio,
                 "valor_usd": _valor_usd(bono, tasas),
-                "moneda": bono.moneda,
+                "moneda": moneda,
                 "tope_unidades": bono.tope_unidades,
                 "tope_monto": bono.tope_monto,
                 "unidades_usadas": fila["unidades"],
-                "monto_usado": _cents(fila["monto_generado"]),
+                "monto_usado": usado,
+                "montos_usados": montos,
                 "esperando_factura": bono.alcance == "factura" and bono.pedido_id in sin_factura,
             }
         )
@@ -2299,6 +2323,8 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
         ]
         linea["tope_por_producto"] = por_linea[(linea["tactical_id"], linea["linea"])] > 1
         linea.setdefault("esperando_factura", False)
+        # One amount per currency it used (sell in incident S1); every child but a cost bonus uses one.
+        linea.setdefault("montos_usados", [{"moneda": linea["moneda"], "monto": linea["monto_usado"]}])
         de_tactical[linea.pop("tactical_id")].append(linea)
     columnas = (
         "id", "tipo", "nombre", "marca", "referencia", "fecha_desde", "fecha_hasta", "moneda", "tc_modo",

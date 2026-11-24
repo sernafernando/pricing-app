@@ -151,6 +151,11 @@ class TacticalFacturaElegidaOut(BaseModel):
     numero: Optional[str] = None  # the readable ERP number (#2264); None when the mirror has none
 
 
+class TacticalMontoUsadoOut(BaseModel):
+    moneda: Moneda
+    monto: Decimal
+
+
 class TacticalLineaOut(BaseModel):
     """One per child row: a `tope_por_producto` line comes back as one line per product."""
 
@@ -166,7 +171,9 @@ class TacticalLineaOut(BaseModel):
     pedido_numero: Optional[str]
     modo_monto: ModoMonto
     valor: Decimal
-    moneda: Moneda  # of `valor`, `tope_monto` and `monto_usado`
+    # Of `valor`, `tope_monto` and `monto_usado`; a cost bonus's % with no money cap (no amount of its own) reads in
+    # the currency its products' costs were in, the one it used (sell in incident S1).
+    moneda: Moneda
     tope_unidades: Optional[int]
     tope_monto: Optional[Decimal]
     tope_por_producto: bool  # its line created more than one child (one per product)
@@ -178,6 +185,9 @@ class TacticalLineaOut(BaseModel):
     tc_al_cobro: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
+    # What it used per currency, ARS first: one entry, `monto_usado` in `moneda`, except a cost bonus's % with no
+    # money cap over products costed in USD and in ARS, one per currency, never converted (sell in incident S1).
+    montos_usados: list[TacticalMontoUsadoOut] = Field(default_factory=list)
     # A USD cost line of an `al_cobro` tactical without its collection rate yet whose USD comes from today's BNA (a %
     # line, or a per-unit amount cut to the unit cost): `monto_usado` is an estimate (tactical sell in USD S10).
     monto_estimado: bool = False

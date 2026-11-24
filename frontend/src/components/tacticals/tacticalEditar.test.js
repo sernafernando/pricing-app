@@ -12,8 +12,24 @@ describe('valoresDeEdicion', () => {
 
     expect({ ...valores, lineas: undefined }).toEqual({ nombre: 'Tacticals BPS Noviembre Q1FY27', nota: 'Por mail', fechaHasta: '2026-11-30' });
     expect(valores.lineas).toEqual([
-      { linea: 1, titulo: '2 productos, cada uno con su tope', topeUnidades: '90', topeMonto: '', usadas: 62, usado: 12760, moneda: 'USD', admiteTopes: true },
-      { linea: 2, titulo: '2 productos con un tope compartido', topeUnidades: '300', topeMonto: '3000', usadas: 132, usado: 1584, moneda: 'USD', admiteTopes: true },
+      { linea: 1, titulo: '2 productos, cada uno con su tope', topeUnidades: '90', topeMonto: '', usadas: 62, usados: [{ moneda: 'USD', monto: 12760 }], moneda: 'USD', admiteTopes: true },
+      { linea: 2, titulo: '2 productos con un tope compartido', topeUnidades: '300', topeMonto: '3000', usadas: 132, usados: [{ moneda: 'USD', monto: 1584 }], moneda: 'USD', admiteTopes: true },
+    ]);
+  });
+
+  it('a % cost line over USD and ARS products keeps what it used in each currency (sell in incident S1)', () => {
+    const linea = {
+      ...TACTICAL_REBATE.lineas[0],
+      montos_usados: [
+        { moneda: 'ARS', monto: '9668.48' },
+        { moneda: 'USD', monto: '38.43' },
+      ],
+      monto_usado: '9668.48',
+    };
+
+    expect(valoresDeEdicion({ ...TACTICAL_REBATE, lineas: [linea] }).lineas[0].usados).toEqual([
+      { moneda: 'ARS', monto: 9668.48 },
+      { moneda: 'USD', monto: 38.43 },
     ]);
   });
 

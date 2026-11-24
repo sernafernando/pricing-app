@@ -8,7 +8,9 @@ from the stored purchase steps (`costo_si_pasos`, type `compra`): each step list
 
 - Amount of one sell in on one step: `cantidad x costo_neto x porcentaje / 100`, in the step's currency (the
   product's cost currency, L18).
-- In the sell in's own currency: as it is when they match; otherwise at the invoice's rate as the line's caps used it
+- A brand bonus's % with no money cap stays in each step's currency, one amount per currency (sell in incident
+  2026-11-24, S1: a % has no currency; "TP loyalty 18.18M ARS must read USD 11,648").
+- Any other sell in, in its own currency: as it is when they match; otherwise at the invoice's rate as the line's caps used it
   (`fuentes.sql_tc_factura`: the PM's correction, the Compras operation's TC, the last rate on or before its date), so
   what is left of a money cap never drifts from what costo SI used up. A step with no rate at all adds no amount,
   never a 0 taken as real (§7).
@@ -141,18 +143,30 @@ def _avisar(origen: str, ref: int, pasos) -> None:
         logger.warning("costo SI: %s %s got a step with no cost (%s); its amount is left out", origen, ref, paso)
 
 
+def _en_moneda_del_paso() -> ColumnElement:
+    """Whether a brand bonus's amount stays in each step's currency (sell in incident 2026-11-24, S1): a % with no
+    money cap has no currency of its own (a USD tactical's is stored ARS, `tacticals.moneda_de_costo`), so what it
+    took is the product's cost currency, one amount per currency, never converted. A per-unit amount, a total and a
+    money cap are in the bonus's currency: those still count in it."""
+    b = SellInBonoMarca
+    return and_(b.tipo == "porcentaje", b.tope_monto.is_(None))
+
+
 def por_bono(bonos: Refs) -> Select:
-    """`(bono_id, unidades, monto, sin_costo)` per brand bonus in `bonos` some step got, the amount in the bonus's
-    currency (unrounded)."""
+    """`(bono_id, moneda, unidades, monto, sin_costo)` per brand bonus in `bonos` some step got and currency its amount
+    is in (`_en_moneda_del_paso`: the steps' own, or the bonus's), unrounded. `unidades` are that currency's steps'
+    (not capped: `de_bonos` caps the bonus's total by its `tope_unidades`)."""
     filas = _sell_ins(bonos=bonos)
-    unidades = func.sum(_unidades_de_bono(filas))
-    tope = SellInBonoMarca.tope_unidades
+    propia = _en_moneda_del_paso()
+    moneda = case((propia, filas.c.moneda), else_=SellInBonoMarca.moneda)
     return (
         select(
             SellInBonoMarca.id.label("bono_id"),
-            case((and_(tope.isnot(None), unidades > tope), tope), else_=unidades).label("unidades"),
-            func.sum(_en(filas, SellInBonoMarca.moneda)).label("monto"),
+            moneda.label("moneda"),
+            func.sum(_unidades_de_bono(filas)).label("unidades"),
+            func.sum(case((propia, filas.c.monto), else_=_en(filas, SellInBonoMarca.moneda))).label("monto"),
             _sin_costo(filas),
+            SellInBonoMarca.tope_unidades.label("tope"),
         )
         .join(filas, and_(filas.c.origen == BONO, filas.c.ref == SellInBonoMarca.id))
         .outerjoin(
@@ -160,7 +174,7 @@ def por_bono(bonos: Refs) -> Select:
             and_(SellInBonoItem.bono_id == SellInBonoMarca.id, SellInBonoItem.item_id == filas.c.item_id),
         )
         .outerjoin(ProductoERP, ProductoERP.item_id == filas.c.item_id)
-        .group_by(SellInBonoMarca.id, tope)
+        .group_by(SellInBonoMarca.id, moneda, SellInBonoMarca.tope_unidades)
     )
 
 
@@ -188,10 +202,18 @@ def _leer(db: Session, consulta: Select, origen: str) -> dict[int, tuple[int, De
     return salida
 
 
-def de_bonos(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:
-    """`{bono id: (units, amount in its currency)}`; a bonus no step got is left out. A step with no cost is logged."""
+def de_bonos(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, dict[str, Decimal]]]:
+    """`{bono id: (units, {currency: amount})}`, the amount in each currency it is in (`por_bono`), the units over
+    every currency, never over its `tope_unidades`; a bonus no step got is left out. A step with no cost is logged."""
     ids = list(ids)
-    return _leer(db, por_bono(ids), BONO) if ids else {}
+    salida: dict[int, tuple[int, dict[str, Decimal]]] = {}
+    for ref, moneda, unidades, monto, sin_costo, tope in db.execute(por_bono(ids)) if ids else ():
+        _avisar(BONO, ref, sin_costo)
+        antes, montos = salida.get(ref, (0, {}))
+        total = antes + int(unidades or 0)
+        montos[moneda] = Decimal(str(monto or 0))
+        salida[ref] = (min(total, tope) if tope is not None else total, montos)
+    return salida
 
 
 def de_compras(db: Session, ids: Iterable[int]) -> dict[int, tuple[int, Decimal]]:

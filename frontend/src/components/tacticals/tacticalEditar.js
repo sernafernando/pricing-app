@@ -1,5 +1,5 @@
 import { numeroDe } from '../tactical/tacticalLineas';
-import { alcanceDe, vacio } from './tacticalsFormat';
+import { alcanceDe, montosDeLinea, vacio } from './tacticalsFormat';
 
 /**
  * The Editar dialog (tacticals F1): only the name, the note, the end date and each POSTed line's caps change; lines,
@@ -15,6 +15,18 @@ function tituloDe(hijos) {
   const nombre = productos === 1 ? '1 producto' : `${productos} productos`;
   if (hijos.length > 1) return `${nombre}, cada uno con su tope`;
   return productos > 1 ? `${nombre} con un tope compartido` : nombre;
+}
+
+/**
+ * The most any child of a line used, per currency it used (`montos_usados`, sell in incident S1: a % cost line over
+ * USD and ARS products used one amount in each, never added).
+ */
+function usadosDe(hijos) {
+  const maximos = new Map();
+  for (const { moneda, monto } of hijos.flatMap(montosDeLinea)) {
+    maximos.set(moneda, Math.max(maximos.get(moneda) ?? 0, Number(monto ?? 0)));
+  }
+  return [...maximos.entries()].map(([moneda, monto]) => ({ moneda, monto }));
 }
 
 function lineasDe(tactical) {
@@ -35,7 +47,7 @@ export function valoresDeEdicion(tactical) {
       topeUnidades: vacio(hijos[0].tope_unidades) ? '' : String(hijos[0].tope_unidades),
       topeMonto: texto(hijos[0].tope_monto),
       usadas: Math.max(...hijos.map((h) => Number(h.unidades_usadas ?? 0))),
-      usado: Math.max(...hijos.map((h) => Number(h.monto_usado ?? 0))),
+      usados: usadosDe(hijos),
       moneda: hijos[0].moneda,
       admiteTopes: hijos[0].modo_monto !== 'monto_total',
     })),

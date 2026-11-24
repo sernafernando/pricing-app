@@ -209,8 +209,9 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
     const chips = await screen.findByRole('list', { name: 'Modelos del bono' });
     expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['SW-8 · Switch 8 bocas', 'Item 999']);
     expect(screen.getByLabelText('Porcentaje')).toHaveValue(2.5);
-    expect(screen.getByText('18 compras · 1.040 u · USD 3.120,00 aplicados')).toBeInTheDocument();
-    expect(screen.getByText('Además $ 1.450,00 en otra moneda (de antes de cambiarla).')).toBeInTheDocument();
+    // Sell in incident S1/S3: each currency it generated in, never added and never flagged as left from a change.
+    expect(screen.getByText('18 compras · 1.040 u · $ 1.450,00 y USD 3.120,00 aplicados')).toBeInTheDocument();
+    expect(screen.queryByText(/en otra moneda/)).not.toBeInTheDocument();
   });
 });
 
