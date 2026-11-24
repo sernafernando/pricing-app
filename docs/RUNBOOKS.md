@@ -695,6 +695,100 @@ cd frontend && mv -T --exchange dist.prev dist
 # coreutils < 9.5 (no --exchange): mv dist dist.bad && mv dist.prev dist
 ```
 
+### Service Memory Limits
+
+The apps CT has 16 GB and, until this change, no service had a memory limit. After 3 days of
+uptime, pricing-api (4 uvicorn workers) held 6.5 GB and the frontend build was OOM-killed
+(2026-11-22). The root cause, which requests make the workers keep that memory, is a separate
+fix. These limits are only the safety net under it.
+
+**What the repo sets.** One drop-in per service, `deploy/systemd/<unit>.service.d/memory.conf`:
+
+| Service | Real peak seen | `MemoryHigh` | `MemoryMax` | On OOM kill |
+| --- | --- | --- | --- | --- |
+| pricing-api | 6.5G (76 h up); 4.2-4.3G after 7-43 h | none, on purpose | 8G | one worker dies, uvicorn starts a new one (`OOMPolicy=continue`) |
+| pricing-worker-ml | 2.4-2.7G in every run | 3.5G | 4G | the process dies, `Restart=always` starts it |
+| pricing-worker | 0.33-0.35G | 1G | 1.25G | the process dies, `Restart=always` starts it |
+
+- **Peaks:** they come from the "memory peak" line systemd logs when it stops a service
+  (`journalctl _PID=1 | grep "memory peak"`) and from the cgroup's `memory.peak`.
+- **The rule:** a limit that kills or stalls the API under normal load is worse than none. Every limit
+  sits above the highest real peak: pricing-api's `MemoryMax` is 1.5G above it, and the workers' `MemoryHigh`
+  is at least 25% above theirs.
+- **Budget:** the three `MemoryMax` add up to 13.25G. The other services on the CT peaked at about
+  2.4G (journald 1.3G, ml-webhook, gbs), so the total fits the 16G CT. That holds outside a deploy:
+  the frontend build (about 5.8G) needs its own room, and the build's memory check covers it
+  ("Frontend Build: Memory and the `dist` Swap").
+- **`MemoryHigh`:** above it the kernel throttles **every** process of the service. There is no swap,
+  so memory the service keeps cannot be reclaimed, and the service can stay slow for a long time
+  without being killed. That is why pricing-api has none: there, losing one worker at `MemoryMax`
+  is the better failure. For the workers, which run in the background, being slow is acceptable.
+- **`MemoryMax`:** above it the kernel OOM-kills the largest process of the service.
+- **Every drop-in also sets:**
+  - `Environment=MALLOC_ARENA_MAX=2`. glibc gives allocating threads their own heap arena (up to 8 per
+    CPU), and FastAPI runs sync endpoints in a 40-thread pool, so each worker keeps many half-empty
+    arenas after heavy requests.
+  - `Restart=always`, which the live units already had.
+
+**How they are applied.**
+- **Every deploy that restarts the backend** (not `--skip-backend`):
+  - it copies each drop-in that differs to `/etc/systemd/system/<unit>.service.d/`;
+  - if it copied anything, it runs `systemctl daemon-reload`;
+  - the restarts that follow apply the new values.
+- **Drop-ins, not whole units:** the live units differ from the copies in `deploy/systemd/` (paths,
+  the `tz.conf` drop-in), and a drop-in only overrides the keys it sets.
+- **Units missing on the server:** they get a warning and nothing is installed. The deploy never
+  creates or enables a unit.
+- **A copy that fails** only warns: the service keeps its previous settings.
+- **Removing a drop-in from the repo** does not remove it from the server:
+  `sudo rm /etc/systemd/system/<unit>.service.d/memory.conf && sudo systemctl daemon-reload`, then
+  restart the unit.
+
+**Check them on the server:**
+
+```bash
+systemctl show pricing-api -p MemoryHigh -p MemoryMax -p OOMPolicy -p Environment
+cat /sys/fs/cgroup/system.slice/pricing-api.service/memory.{current,peak,events}
+```
+
+`memory.events` counts `high` (throttling) and `oom_kill`. A growing `high` means the service
+lives at its soft limit: look for the cause, and do not just raise the limit.
+
+**Measured effect of `MALLOC_ARENA_MAX=2`** (local, synthetic). The stack is the prod-pinned
+fastapi 0.139.0, uvicorn 0.50.2 and Python 3.11, with 2 workers. A sync endpoint builds and
+serializes an export of 75k-225k row dicts, and each round fires 40 concurrent requests. The number
+is the summed RSS of the workers:
+
+| Run | Start | Round 1 | Round 3 | Round 6 | Idle 20 s later |
+| --- | --- | --- | --- | --- | --- |
+| default, 1st | 103 MB | 1150 MB | 1595 MB | 1733 MB | 1732 MB |
+| default, 2nd | 93 MB | 961 MB | 1546 MB | 1680 MB | 1678 MB |
+| `MALLOC_ARENA_MAX=2`, 1st | 93 MB | 524 MB | 601 MB | 680 MB | 678 MB |
+| `MALLOC_ARENA_MAX=2`, 2nd | 92 MB | 407 MB | 566 MB | 535 MB | 534 MB |
+
+- **Default:** it climbs with every round and gives nothing back when idle. That is the same pattern
+  as prod, where every worker keeps its heaviest request.
+- **With the cap:** it plateaus at about 0.5-0.7 GB, roughly 60-70% less, and the response sizes are
+  the same.
+- **What this does not show:** the workload is synthetic, so it says nothing about how much the
+  real endpoints keep.
+- **Latency and throughput:** fewer arenas means more lock contention between allocating threads, so
+  this was measured with the same load. The runs were interleaved (default, 2, 4, then again), 3 per
+  value. Each run is 240 requests: 6 rounds of 40 concurrent requests on 2 workers, so the requests
+  queue, and the latency includes that wait.
+
+| `MALLOC_ARENA_MAX` | p50 (3 runs) | p95 (3 runs) | req/s (3 runs) | Mean p95 | Mean req/s | RSS at the end |
+| --- | --- | --- | --- | --- | --- | --- |
+| unset (default) | 16.81 / 17.17 / 20.77 s | 24.58 / 23.51 / 30.21 s | 1.98 / 1.90 / 1.59 | 26.10 s | 1.82 | 1737-1848 MB |
+| 2 | 16.63 / 16.24 / 20.46 s | 23.97 / 26.72 / 26.96 s | 2.00 / 1.98 / 1.69 | 25.88 s (-1%) | 1.89 (+4%) | 586-638 MB |
+| 4 | 21.97 / 17.32 / 19.58 s | 28.19 / 27.10 / 28.13 s | 1.67 / 1.89 / 1.72 | 27.81 s (+7%) | 1.76 (-3%) | 792-914 MB |
+
+- **`MALLOC_ARENA_MAX=2`** costs nothing measurable: p95 and req/s stay within run-to-run noise (the
+  third round of every value was slower, from the machine). Memory drops to about a third.
+- **`=4`** keeps more memory and is no faster on this load.
+- **After the deploy**, still compare the API's p95 with the week before. The real endpoints mix DB
+  waits and CPU differently from this test.
+
 ### First Deploy After `deploy.sh` Itself Changed
 
 `deploy.sh` runs `git pull` on itself while bash is still reading it, so the
