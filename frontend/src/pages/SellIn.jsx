@@ -272,6 +272,7 @@ export default function SellIn() {
               bonoId={panel.id}
               marcas={marcas}
               puedeGestionar={false}
+              puedeAprobar={tienePermiso('tacticals.aprobar')}
               onSaved={actualizar}
               onVerCompra={verCompra}
               onClose={cerrarPanel}
@@ -288,6 +289,7 @@ export default function SellIn() {
               key={`campana-${panel.id}`}
               campanaId={panel.id}
               puedeGestionar={false}
+              puedeAprobar={tienePermiso('tacticals.aprobar')}
               onSaved={actualizar}
               onClose={cerrarPanel}
             />
@@ -296,6 +298,7 @@ export default function SellIn() {
               key={panel.id}
               compraId={panel.id}
               puedeGestionar={false}
+              puedeAprobar={tienePermiso('tacticals.aprobar')}
               onChanged={actualizar}
               onVerBono={verBono}
               onClose={cerrarPanel}
@@ -329,6 +332,7 @@ export default function SellIn() {
               version={versionPagina}
               tipoInicial={tipoDeEnlace}
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
+              puedeAprobar={tienePermiso('tacticals.aprobar')}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
               onEditar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&editar=${t.id}`)}
               onCambio={actualizar}

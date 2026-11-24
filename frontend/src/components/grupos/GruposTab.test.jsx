@@ -18,6 +18,7 @@ vi.mock('../../services/offsetGruposAPI', () => ({
     agregarFiltro: vi.fn(),
     alcancePrevio: vi.fn(),
     eliminarFiltro: vi.fn(),
+    aprobadasAfectadas: vi.fn(),
   },
 }));
 
@@ -55,6 +56,7 @@ beforeEach(() => {
   offsetGruposAPI.alcance.mockResolvedValue({ data: ALCANCE });
   offsetGruposAPI.opciones.mockResolvedValue({ data: OPCIONES });
   offsetGruposAPI.alcancePrevio.mockResolvedValue({ data: { antes: 42, despues: 50 } });
+  offsetGruposAPI.aprobadasAfectadas.mockResolvedValue({ data: { campanas: 0, offsets: 0 } });
 });
 
 const fila = async (nombre) => (await screen.findByText(nombre)).closest('tr');
@@ -80,6 +82,16 @@ describe('GruposTab — list', () => {
     const vacio = await fila('Sin filtros');
     expect(within(vacio).getByText('Sin filtros: no alcanza productos')).toBeInTheDocument();
     expect(within(vacio).getByText('Ninguna')).toBeInTheDocument();
+  });
+
+  it('the scope note says a filter change sends the approved campaigns back to pending, never that they recalculate', async () => {
+    renderWithRouter(<GruposTab puedeEditar />);
+    await fila('TP-Link redes');
+    const nota =
+      'Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas de sell out que lo usan: ' +
+      'las aprobadas vuelven a pendiente de aprobación y dejan de aplicar hasta que las aprueben de nuevo.';
+    expect(screen.getByText(nota)).toBeInTheDocument();
+    expect(screen.queryByText(/se recalculan solas/)).not.toBeInTheDocument();
   });
 
   it('says it is loading while the groups and their reach are asked, and never together with the error', async () => {
@@ -157,7 +169,7 @@ describe('GruposTab — list', () => {
   it('warns that changing a group changes which products its campaigns reach', async () => {
     renderWithRouter(<GruposTab puedeEditar />);
     await fila('TP-Link redes');
-    expect(screen.getByText(/Cambiar un grupo cambia los productos que alcanzan las campañas de sell out que lo usan/)).toBeInTheDocument();
+    expect(screen.getByText(/Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas de sell out que lo usan/)).toBeInTheDocument();
   });
 });
 
@@ -226,7 +238,7 @@ describe('GruposTab — filters and preview', () => {
     const panel = await abrir(user, 'TP-Link redes');
     expect(within(panel).getByText('Alcanza 42 productos.')).toBeInTheDocument();
     expect(within(panel).getByText('Noviembre TP-Link')).toBeInTheDocument();
-    expect(within(panel).getByText(/Cambiar un grupo cambia los productos que alcanzan/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Cambiar los filtros de un grupo cambia los productos que alcanzan/)).toBeInTheDocument();
   });
 
   it('adds a filter row with brand and category, then the preview refreshes', async () => {
@@ -287,7 +299,7 @@ describe('GruposTab — filters and preview', () => {
     expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeEnabled();
   });
 
-  it('with an active campaign, adding a filter asks first naming it and showing the products before -> after', async () => {
+  it('with an active campaign, adding a filter asks first showing the products before -> after, never "recalcula"', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
     renderWithRouter(<GruposTab puedeEditar />);
@@ -298,8 +310,10 @@ describe('GruposTab — filters and preview', () => {
     expect(offsetGruposAPI.alcancePrevio).toHaveBeenCalledWith(1, {
       agregar: { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null },
     });
-    expect(aviso).toHaveTextContent('Este cambio recalcula la campaña de sell out activa «Noviembre TP-Link».');
     expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
+    // L12: an active campaign is an approved one, so a filter change always sends it back to pending; the
+    // "recalcula" sentence was for an impossible state and is gone.
+    expect(aviso).not.toHaveTextContent('recalcula');
     expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
     await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
@@ -355,6 +369,94 @@ describe('GruposTab — filters and preview', () => {
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
     await confirmarCambio(user, panel);
     expect(await within(panel).findByRole('alert')).toHaveTextContent('Filtro no encontrado');
+  });
+});
+
+// Tacticals approval S14: a group's filters are the scope of every approved campaign using it, and scope is money.
+describe('GruposTab — approved loads go back to pending', () => {
+  const agregarMercusys = async (user, panel) => {
+    await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
+    await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
+  };
+
+  it('warns "N campañas aprobadas vuelven a pendiente" and saves only after the confirmation', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.aprobadasAfectadas.mockResolvedValue({ data: { campanas: 2, offsets: 0 } });
+    offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const panel = await abrir(user, 'TP-Link redes');
+    await agregarMercusys(user, panel);
+    const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
+    expect(offsetGruposAPI.aprobadasAfectadas).toHaveBeenCalledWith(1);
+    expect(aviso).toHaveTextContent('2 campañas aprobadas vuelven a pendiente');
+    expect(aviso).not.toHaveTextContent('offset');
+    // S16: going back to pending is the whole story, never "recalcula" next to it.
+    expect(aviso).not.toHaveTextContent('recalcula');
+    expect(aviso).toHaveTextContent('Dejan de aplicar hasta que se aprueben de nuevo.');
+    expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
+    expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
+    await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
+    expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
+  });
+
+  it('says it in the singular for one campaign and names the approved offsets too', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.aprobadasAfectadas.mockResolvedValue({ data: { campanas: 1, offsets: 3 } });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const panel = await abrir(user, 'TP-Link redes');
+    await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
+    expect(aviso).toHaveTextContent('1 campaña aprobada vuelve a pendiente');
+    expect(aviso).toHaveTextContent('3 offsets aprobados vuelven a pendiente');
+    await user.click(within(aviso).getByRole('button', { name: 'Cancelar' }));
+    expect(offsetGruposAPI.eliminarFiltro).not.toHaveBeenCalled();
+  });
+
+  it('a group with no active campaign but an approved offset asks too, without the products preview', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.aprobadasAfectadas.mockResolvedValue({ data: { campanas: 0, offsets: 1 } });
+    offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 14 } });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const panel = await abrir(user, 'Sin filtros');
+    await agregarMercusys(user, panel);
+    const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
+    expect(aviso).toHaveTextContent('1 offset aprobado vuelve a pendiente');
+    expect(aviso).not.toHaveTextContent('campaña');
+    expect(offsetGruposAPI.alcancePrevio).not.toHaveBeenCalled();
+    expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
+    await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
+    expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(2, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
+  });
+
+  it('when the count cannot be asked it says so and saves nothing', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.aprobadasAfectadas.mockRejectedValue(new Error('boom'));
+    renderWithRouter(<GruposTab puedeEditar />);
+    const panel = await abrir(user, 'Sin filtros');
+    await agregarMercusys(user, panel);
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudo calcular el alcance del cambio.');
+    expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
+  });
+
+  it('the list counts a campaign waiting for approval apart, never as voided', async () => {
+    offsetGruposAPI.alcance.mockResolvedValue({
+      data: [{ ...ALCANCE[0], campanas: [...ALCANCE[0].campanas, { id: 7, nombre: 'Diciembre TP-Link', estado: 'pendiente' }] }, ALCANCE[1]],
+    });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const tplink = await fila('TP-Link redes');
+    expect(within(tplink).getByText('1 anulada')).toBeInTheDocument();
+    expect(within(tplink).getByText('1 pendiente de aprobación')).toBeInTheDocument();
+  });
+
+  it('a campaign waiting for approval reads "Pendiente de aprobación" in the panel', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.alcance.mockResolvedValue({
+      data: [{ ...ALCANCE[0], campanas: [{ id: 7, nombre: 'Diciembre TP-Link', estado: 'pendiente' }] }, ALCANCE[1]],
+    });
+    renderWithRouter(<GruposTab puedeEditar />);
+    const panel = await abrir(user, 'TP-Link redes');
+    const campana = within(panel).getByText('Diciembre TP-Link').closest('li');
+    expect(within(campana).getByText('Pendiente de aprobación')).toBeInTheDocument();
   });
 });
 

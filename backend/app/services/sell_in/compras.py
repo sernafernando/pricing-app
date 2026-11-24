@@ -342,14 +342,15 @@ def _validar_contra_operaciones(data: SellInCompraCreate, ops: Operaciones) -> N
         raise SellInError("El proveedor de la compra no coincide con el de las operaciones")
 
 
-def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> SellInCompra:
+def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int, *, estado: str = "activa") -> SellInCompra:
     """Recompute the split, freeze each line's cost and save the purchase with its audit rows (one transaction).
 
     A reference that disappears between the checks and the write (a concurrent delete) surfaces as a
     foreign-key violation: the transaction is rolled back and it becomes a `SellInError` too. No sale
-    is allocated to it any more (sell-in-costo-si T5 PR A).
+    is allocated to it any more (sell-in-costo-si T5 PR A). `estado`: `pendiente` for a load that waits for
+    approval (the API, tacticals approval S6).
     """
-    compra = crear_compra_sin_commit(db, data, usuario_id)
+    compra = crear_compra_sin_commit(db, data, usuario_id, estado=estado)
     try:
         db.commit()
     except Exception:
@@ -360,11 +361,17 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
 
 
 def crear_compra_sin_commit(
-    db: Session, data: SellInCompraCreate, usuario_id: int, *, tactical: Optional[tuple[int, int]] = None
+    db: Session,
+    data: SellInCompraCreate,
+    usuario_id: int,
+    *,
+    tactical: Optional[tuple[int, int]] = None,
+    estado: str = "activa",
 ) -> SellInCompra:
     """`crear_compra` without the commit, for a tactical's invoice total (`app.services.tacticals`, one transaction
     with the rest of the tactical). A failure rolls the WHOLE session back, as `crear_compra` does. `tactical`: the
-    `(tactical_id, tactical_linea)` it is a line of."""
+    `(tactical_id, tactical_linea)` it is a line of. `estado`: `pendiente` waits for approval and every money
+    reader skips it (`app.services.sell_in.aprobacion` approves it)."""
     if data.cuenta_desde == "ingreso" and data.fecha_ingreso is None:
         raise SellInError("Para contar desde el ingreso hace falta la fecha de ingreso")
     _validar_referencias(db, data)
@@ -378,7 +385,7 @@ def crear_compra_sin_commit(
         raise SellInError(str(exc)) from exc
 
     try:
-        compra, items = _guardar(db, data, calculo, usuario_id, ids, ops, tactical)
+        compra, items = _guardar(db, data, calculo, usuario_id, ids, ops, tactical, estado)
     except IntegrityError as exc:
         db.rollback()
         raise SellInError(
@@ -399,6 +406,7 @@ def _guardar(
     ids: list[int],
     ops: Optional[Operaciones],
     tactical: Optional[tuple[int, int]] = None,
+    estado: str = "activa",
 ) -> Tuple[SellInCompra, List[SellInCompraItem]]:
     """Writes the purchase, its operation links, lines and audit rows (flushed, not committed): every
     `IntegrityError` it raises is about the purchase's own references. Without a supplier of its own the
@@ -415,7 +423,7 @@ def _guardar(
         monto_total=calculo.monto_total,
         tipo_cambio=data.tipo_cambio,
         formula=calculo.formula,
-        estado="activa",
+        estado=estado,
         descripcion=data.descripcion,
         usuario_id=usuario_id,
         tactical_id=tactical[0] if tactical else None,
@@ -532,7 +540,8 @@ def repartir_compra_sin_commit(
     allocated any more (T5 PR A). Does not commit. None, with nothing changed, when the
     purchase is not active, not `monto`, or already has exactly those units."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
-    if compra is None or compra.estado != "activa" or compra.tipo != "monto":
+    # A pending one (a tactical waiting for approval) is re-split too: approved later, it applies the current split.
+    if compra is None or compra.estado not in ("activa", "pendiente") or compra.tipo != "monto":
         return None
     actuales = list(
         db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
@@ -842,6 +851,7 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
 
 _COLUMNAS_COMPRA = (
     "id",
+    "tactical_id",  # a tactical's line is approved with its tactical (tacticals approval S6)
     "proveedor_id",
     "fecha_compra",
     "fecha_ingreso",

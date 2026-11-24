@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import SearchInput from '../SearchInput';
 import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import CargasPendientes from './CargasPendientes';
 import TacticalAnular from './TacticalAnular';
+import OffsetAprobar from './OffsetAprobar';
+import TacticalAprobar from './TacticalAprobar';
 import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
 import { COLUMNAS_TACTICAL, FILTROS_VACIOS, formatMontosKpi, paramsDeFiltros } from './tacticalsFormat';
@@ -18,10 +21,12 @@ const ESTADOS = [
   { value: 'vigentes', label: 'Vigentes' },
   { value: 'vencidos', label: 'Vencidos' },
   { value: 'anulados', label: 'Anulados' },
+  // Loads that apply nothing until someone with `tacticals.aprobar` approves them (tacticals approval S8).
+  { value: 'pendientes_aprobacion', label: 'Pendientes de aprobación' },
 ];
 const COBRANZAS = [
   { value: 'todos', label: 'Todos' },
-  { value: 'pendientes', label: 'Pendientes' },
+  { value: 'pendientes', label: 'Pendientes de cobro' },
   { value: 'cobrados', label: 'Cobrados' },
 ];
 // The kind of line a tactical holds (SISO S1): the list keeps the tacticals with at least one line of that kind.
@@ -36,13 +41,18 @@ const FILAS_POR_PAGINA = 50;
 
 const cantidadDe = (n) => `${n} ${n === 1 ? 'tactical' : 'tacticals'}`;
 
-/** Pendientes and Cobrados over every tactical the other filters match (tactical cobranza S4): count, generated of
- * cap per currency and how many have no money cap (S6). */
-function KpisCobranza({ kpis }) {
+const pendientesDe = (n) => `${n} ${n === 1 ? 'pendiente' : 'pendientes'} de aprobación`;
+
+/** Pendientes de cobro and Cobrados over every approved tactical the other filters match (tactical cobranza S4): count,
+ * generated of cap per currency and how many have no money cap (S6). What waits for approval applies no money, so it
+ * is counted apart (`pendientesAprobacion`, tacticals approval S12: the pending tacticals plus the standalone loads);
+ * the count selects the pending filter (`onVerPendientes`). */
+function KpisCobranza({ kpis, pendientesAprobacion, onVerPendientes }) {
   return (
     <section className={styles.kpis} aria-label="Cobranza de los tacticals">
       {[
-        ['Pendientes', kpis.pendientes],
+        // "de cobro": beside "N pendientes de aprobación", "Pendientes" alone read as the approval count (S16).
+        ['Pendientes de cobro', kpis.pendientes],
         ['Cobrados', kpis.cobrados],
       ].map(([titulo, grupo]) => (
         <div key={titulo} className={styles.kpi}>
@@ -52,7 +62,16 @@ function KpisCobranza({ kpis }) {
           {grupo.sin_tope > 0 && <div className={styles.kpiSinTope}>{grupo.sin_tope} sin tope</div>}
         </div>
       ))}
-      <p className={styles.kpiNota}>Monto: lo que generaron las líneas de cada tactical de su tope, por moneda.</p>
+      {typeof pendientesAprobacion === 'number' && (
+        <div className={styles.kpiPendientes}>
+          <button type="button" className={styles.kpiPendientesBoton} onClick={onVerPendientes}>
+            {pendientesDe(pendientesAprobacion)}
+          </button>
+        </div>
+      )}
+      <p className={styles.kpiNota}>
+        Monto: lo que generaron las líneas de cada tactical de su tope, por moneda. Sin los pendientes de aprobación.
+      </p>
     </section>
   );
 }
@@ -61,7 +80,8 @@ function KpisCobranza({ kpis }) {
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, currency, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
- * actions menu (tacticals F1): Editar, on a tactical that is not voided, hands it to `onEditar` (the full edit, S8);
+ * actions menu (tacticals F1): Aprobar, on a pending tactical for a user with `tacticals.aprobar` (`puedeAprobar`,
+ * even without the kind's gestionar; tacticals approval S8), asks for confirmation and approves it; Editar, on a tactical that is not voided, hands it to `onEditar` (the full edit, S8);
  * a collected one (or without `onEditar`) opens the Editar dialog instead (only name, note, end date and caps) and
  * asks the list again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
  * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
@@ -71,8 +91,12 @@ function KpisCobranza({ kpis }) {
  * Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4): a Cobranza filter (Todos | Pendientes | Cobrados), the
  * Pendientes / Cobrados KPIs the list answers over the other filters, and on each row a Pendiente / Cobrado pill; a
  * row the user manages opens its Cobranza box under it (one at a time), and a save or an undo asks the list again.
+ *
+ * Approval inbox (tacticals approval S11, S12): the money KPIs leave pending tacticals out, and a separate "N
+ * pendientes de aprobación" count selects the pending filter; under it, the bonuses, purchases and campaigns loaded
+ * on their own that wait for approval (`CargasPendientes`) each open their record through `onVerLinea`.
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, puedeAprobar = false, onRenovar, onEditar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
   const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -82,6 +106,8 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const [abiertos, setAbiertos] = useState(() => new Set());
   const [editando, setEditando] = useState(null);
   const [anulando, setAnulando] = useState(null);
+  const [aprobando, setAprobando] = useState(null);
+  const [aprobandoOffset, setAprobandoOffset] = useState(null);
   const [guardados, setGuardados] = useState(0);
   // The tactical whose Cobranza box is open under its row (one at a time), or null.
   const [cobrando, setCobrando] = useState(null);
@@ -127,8 +153,10 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
     });
 
   const accionesDe = (tactical) => {
-    if (!puedeGestionar(tactical.tipo)) return [];
-    const acciones = [];
+    // Approving needs only `tacticals.aprobar` (self-approval is allowed), not the kind's gestionar.
+    const aprobar = puedeAprobar && tactical.estado === 'pendiente' ? [{ label: 'Aprobar', onSelect: () => setAprobando(tactical) }] : [];
+    if (!puedeGestionar(tactical.tipo)) return aprobar;
+    const acciones = [...aprobar];
     // A collected tactical changes no money until its collection is undone (S8, D1): only the safe fields' dialog.
     const editar = () => (onEditar && !tactical.cobranza ? onEditar(tactical) : setEditando(tactical));
     if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: editar });
@@ -219,7 +247,13 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
         </div>
       )}
       {!error && !datos && <div className={styles.aviso}>Cargando tacticals…</div>}
-      {!error && datos?.kpis && <KpisCobranza kpis={datos.kpis} />}
+      {!error && datos?.kpis && (
+        <KpisCobranza
+          kpis={datos.kpis}
+          pendientesAprobacion={datos.pendientes_aprobacion}
+          onVerPendientes={() => filtrar({ estado: 'pendientes_aprobacion' })}
+        />
+      )}
       {!error && datos && (
         <div className={styles.lista}>
           <div className={styles.scroller}>
@@ -290,6 +324,37 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
             }
           />
         </div>
+      )}
+      {filtros.estado === 'pendientes_aprobacion' && (
+        <CargasPendientes
+          tipo={filtros.tipo}
+          version={version + guardados}
+          puedeAprobar={puedeAprobar}
+          onVer={onVerLinea}
+          onAprobarOffset={setAprobandoOffset}
+        />
+      )}
+      {aprobando && (
+        <TacticalAprobar
+          tactical={aprobando}
+          onCerrar={() => setAprobando(null)}
+          onAprobado={() => {
+            setAprobando(null);
+            setGuardados((n) => n + 1);
+            onCambio?.();
+          }}
+        />
+      )}
+      {aprobandoOffset && (
+        <OffsetAprobar
+          offset={aprobandoOffset}
+          onCerrar={() => setAprobandoOffset(null)}
+          onAprobado={() => {
+            setAprobandoOffset(null);
+            setGuardados((n) => n + 1);
+            onCambio?.();
+          }}
+        />
       )}
       {anulando && (
         <TacticalAnular

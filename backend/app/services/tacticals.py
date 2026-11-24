@@ -38,7 +38,7 @@ import logging
 
 import functools
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
@@ -49,6 +49,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.pedido_compra import PedidoCompra
@@ -66,6 +67,7 @@ from app.models.sell_in import (
 )
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.usuario import Usuario
 from app.models.tactical import Tactical, TacticalCobranza, TacticalFacturaPendiente, TacticalMarca, TacticalTienda
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
@@ -79,7 +81,7 @@ from app.schemas.tacticals import (
     TacticalLineaTopesIn,
     TacticalTiendaIn,
 )
-from app.services.sell_in import bono_queue, bonos, bonos_costo, bonos_crud, compras, facturas_elegidas
+from app.services.sell_in import aprobacion, bono_queue, bonos, bonos_costo, bonos_crud, compras, facturas_elegidas
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance as sell_out_alcance, campanas, tienda_scope
 
@@ -403,7 +405,9 @@ def _sell_out(db, tactical, data, linea, numero, parte, codigos, usuario_id, her
         grupo_ids=[grupo_id],
         reparto_criterio=linea.reparto_criterio,
     )
-    campanas.crear_campana_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
+    campanas.crear_campana_sin_commit(
+        db, entrada, usuario_id, tactical=(tactical.id, numero), estado=aprobacion.estado_de_linea(tactical.estado)
+    )
 
 
 def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id, heredada=False) -> None:
@@ -451,7 +455,14 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id, here
         tope_monto=linea.tope_monto,
         acumulable=data.acumulable,
     )
-    bonos_crud.crear_bono_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero), heredado=heredada)
+    bonos_crud.crear_bono_sin_commit(
+        db,
+        entrada,
+        usuario_id,
+        tactical=(tactical.id, numero),
+        estado=aprobacion.estado_de_linea(tactical.estado),
+        heredado=heredada,
+    )
 
 
 def moneda_de_costo(moneda: str, modo_monto: str, tope_monto: Optional[Decimal]) -> str:
@@ -502,7 +513,17 @@ def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, us
         )
         db.flush()
         return
-    _compra_de_factura(db, (tactical.id, numero), pedido, linea.valor, data.moneda, tasa_usd, descripcion, usuario_id)
+    _compra_de_factura(
+        db,
+        (tactical.id, numero),
+        pedido,
+        linea.valor,
+        data.moneda,
+        tasa_usd,
+        descripcion,
+        usuario_id,
+        aprobacion.estado_de_linea(tactical.estado),
+    )
 
 
 def _facturado(db: Session, pedido_id: int, elegidas: Optional[frozenset[int]] = None) -> list[tuple[int, int]]:
@@ -530,9 +551,11 @@ def _compra_de_factura(
     tasa_usd: Optional[Decimal],
     descripcion: Optional[str],
     usuario_id: int,
+    estado: str,
 ) -> SellInCompra:
     """The purchase of an invoice total, at save (`_total_de_factura`) or when its invoice arrives
-    (`aplicar_facturas_pendientes`): one code path, so both give the same rows."""
+    (`aplicar_facturas_pendientes`): one code path, so both give the same rows. `estado` follows the tactical
+    (`aprobacion.estado_de_linea`): under a pending tactical it waits for the approval like every other line."""
     cantidades = _facturado(db, pedido.id, facturas_elegidas.de_linea(db, *tactical))
     if not cantidades:
         raise TacticalError(f"la factura de la operación {pedido.numero} no tiene líneas facturadas")
@@ -549,7 +572,7 @@ def _compra_de_factura(
         fecha_compra=pedido.fecha_factura,
         descripcion=descripcion,
     )
-    return compras.crear_compra_sin_commit(db, entrada, usuario_id, tactical=tactical)
+    return compras.crear_compra_sin_commit(db, entrada, usuario_id, tactical=tactical, estado=estado)
 
 
 def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
@@ -570,7 +593,13 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
         .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")
         .distinct()
     )
-    db.query(Tactical.id).filter(Tactical.id.in_(duenos)).order_by(Tactical.id).with_for_update(key_share=True).all()
+    estados = dict(
+        db.query(Tactical.id, Tactical.estado)
+        .filter(Tactical.id.in_(duenos))
+        .order_by(Tactical.id)
+        .with_for_update(key_share=True)
+        .all()
+    )
     filas = (
         db.query(TacticalFacturaPendiente)
         .filter(TacticalFacturaPendiente.pedido_id.in_(ids), TacticalFacturaPendiente.estado == "pendiente")
@@ -600,6 +629,7 @@ def aplicar_facturas_pendientes(db: Session, pedido_ids: Iterable[int]) -> int:
             fila.tipo_cambio,
             fila.descripcion,
             fila.usuario_id,
+            aprobacion.estado_de_linea(estados.get(fila.tactical_id)),
         )
         fila.estado, fila.compra_id, fila.aplicada_en = "aplicada", compra.id, func.now()
         tacticals_.add(fila.tactical_id)
@@ -626,7 +656,7 @@ def repartir_totales_de_factura(db: Session, pedido_ids: Iterable[int]) -> int:
         .where(
             SellInCompraPedido.pedido_compra_id.in_(ids),
             SellInCompra.tactical_id.isnot(None),
-            SellInCompra.estado == "activa",
+            SellInCompra.estado.in_(aprobacion.VIVAS),
             SellInCompra.tipo == "monto",
         )
     )
@@ -697,7 +727,7 @@ def _pedidos_de_facturas(db: Session, tactical_id: int) -> list[int]:
     bonos_ = select(SellInBonoMarca.pedido_id).where(
         SellInBonoMarca.tactical_id == tactical_id,
         SellInBonoMarca.alcance == "factura",
-        SellInBonoMarca.estado == "activa",
+        SellInBonoMarca.estado.in_(aprobacion.VIVAS),
     )
     totales = select(TacticalFacturaPendiente.pedido_id).where(
         TacticalFacturaPendiente.tactical_id == tactical_id, TacticalFacturaPendiente.estado == "pendiente"
@@ -771,7 +801,7 @@ def _aplicar_cabecera(db: Session, tactical: Tactical, data: TacticalIn) -> None
 
 
 def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
-    tactical = Tactical(estado="activo", usuario_id=usuario_id)
+    tactical = Tactical(estado="pendiente", usuario_id=usuario_id)  # applies nothing until approved (S2)
     _aplicar_cabecera(db, tactical, data)
     db.add(tactical)
     db.flush()
@@ -831,6 +861,103 @@ def _cabecera(t: Tactical) -> dict:
         "moneda": t.moneda,
         "estado": t.estado,
     }
+
+
+# --- approval (tacticals approval S2-S5) ------------------------------------------------------------------------
+
+# What a money edit changes (S5: amounts, %, units/caps, dates, scope, base/kind): the header but its name, reference
+# and note, and every line's definition but its child's id and state. Name, note and collection keep the approval.
+CABECERA_DE_DINERO = (
+    "tipo", "marca", "fecha_desde", "fecha_hasta", "moneda", "tc_modo", "tipo_cambio", "incluye_iva", "acumulable",
+    "todas_tiendas", "tope_compartido",
+)  # fmt: skip
+
+
+class TacticalYaAprobado(TacticalError):
+    """A second approval: 409."""
+
+
+def _dinero(db: Session, tactical: Tactical) -> dict:
+    db.flush()
+    db.expire(tactical, ["tiendas", "marcas"])
+    hijos = [h for h in serializar(db, [tactical])[0]["lineas"] if h["estado"] != "anulada"]
+    return {
+        **{c: getattr(tactical, c) for c in CABECERA_DE_DINERO},
+        "marcas": sorted(fila.marca for fila in tactical.marcas),
+        "tiendas": sorted((fila.tipo, fila.store_id) for fila in tactical.tiendas),
+        "lineas": [{k: v for k, v in h.items() if k not in ("id", "estado")} for h in _definicion_de(hijos)],
+    }
+
+
+def _a_pendiente_si_cambio(db: Session, tactical: Tactical, antes: dict, usuario_id: int) -> None:
+    """After an edit (PATCH or PUT): an approved tactical whose money changed goes back to pending (S4)."""
+    if tactical.estado == "activo" and _dinero(db, tactical) != antes:
+        a_pendiente(db, tactical.id, usuario_id, "Se editaron sus montos")
+
+
+def _lineas_de(db: Session, tactical_id: int) -> dict[str, list[int]]:
+    """The tactical's lines that are not voided, per engine (a purchase a bonus generated is not one of them)."""
+    return {
+        clave: [
+            i
+            for (i,) in db.query(modelo.id).filter(
+                modelo.tactical_id == tactical_id, modelo.estado.in_(aprobacion.VIVAS)
+            )
+        ]
+        for modelo, clave in (
+            (SellInBonoMarca, "bono_ids"),
+            (SellInCompra, "compra_ids"),
+            (SellOutCampana, "campana_ids"),
+        )
+    }
+
+
+def a_pendiente(db: Session, tactical_id: int, usuario_id: int, motivo: Optional[str] = None) -> bool:
+    """Send an approved tactical and its lines back to pending (S4): nothing from it applies until it is approved
+    again, and the approver is cleared. Locks the tactical first (the order of every tactical writer). False when it
+    is not approved. Does not commit."""
+    tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
+    if tactical is None or tactical.estado != "activo":
+        return False
+    antes = {"aprobado_por": tactical.aprobado_por, "aprobado_at": _iso(tactical.aprobado_at)}
+    tactical.estado, tactical.aprobado_por, tactical.aprobado_at = "pendiente", None, None
+    lineas = aprobacion.cambiar_lineas(db, **_lineas_de(db, tactical_id), de=aprobacion.ACTIVA, a=aprobacion.PENDIENTE)
+    _audit(db, TipoAccion.TACTICAL_A_PENDIENTE, usuario_id, {"tactical_id": tactical_id, **lineas}, motivo, antes)
+    return True
+
+
+def _iso(valor: Any) -> Optional[str]:
+    return valor.isoformat() if valor is not None else None
+
+
+@_ocupado_si_deadlock
+def aprobar(db: Session, tactical_id: int, usuario_id: int) -> Optional[Tactical]:
+    """Approve a pending tactical (`POST /tacticals/{id}/aprobar`, S3): it and every line that is not voided start
+    applying in one transaction (`aprobacion.cambiar_lineas` queues what follows), with who approved and when, and
+    one `TACTICAL_APROBADO` row. Its author may approve it (L31). None when it does not exist; `TacticalYaAnulado`
+    when voided; `TacticalYaAprobado` when already approved; `TacticalOcupado` when a campaign is being recomputed.
+    Commits."""
+    try:
+        tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
+        if tactical is None:
+            return None
+        if tactical.estado == "anulado":
+            raise TacticalYaAnulado(f"El tactical {tactical_id} está anulado")
+        if tactical.estado == "activo":
+            raise TacticalYaAprobado(f"El tactical {tactical_id} ya está aprobado")
+        tactical.estado, tactical.aprobado_por, tactical.aprobado_at = "activo", usuario_id, func.now()
+        lineas = aprobacion.cambiar_lineas(
+            db, **_lineas_de(db, tactical_id), de=aprobacion.PENDIENTE, a=aprobacion.ACTIVA
+        )
+        _audit(db, TipoAccion.TACTICAL_APROBADO, usuario_id, {"tactical_id": tactical_id, **lineas})
+        facturas = _pedidos_de_facturas(db, tactical_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    _encolar_si_llego_la_factura(db, facturas)
+    db.refresh(tactical)
+    return tactical
 
 
 # --- void ---------------------------------------------------------------------------------------------------------
@@ -915,6 +1042,7 @@ def editar(
         if tactical.estado == "anulado":
             raise TacticalYaAnulado(f"El tactical {tactical_id} está anulado")
         hijos = serializar(db, [tactical])[0]["lineas"]
+        dinero = _dinero(db, tactical)
         nombre, fecha_hasta = _validar_edicion(db, tactical, data, hijos, hoy)
         topes = {t.linea: t.model_dump(exclude_unset=True, exclude={"linea"}) for t in data.lineas}
         antes = {**_editables(tactical), "lineas": _topes_de(hijos, topes)}
@@ -928,6 +1056,7 @@ def editar(
             "lineas": [t.model_dump(mode="json", exclude_unset=True) for t in data.lineas],
         }
         _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        _a_pendiente_si_cambio(db, tactical, dinero, usuario_id)
         db.commit()
     except campanas.SellOutRecalculando as exc:
         db.rollback()
@@ -982,7 +1111,7 @@ def _validar_edicion(
     for tope in data.lineas:
         if tope.linea not in lineas:
             raise TacticalError(f"El tactical no tiene línea {tope.linea}")
-        for hijo in (h for h in hijos if h["linea"] == tope.linea and h["estado"] == "activa"):
+        for hijo in (h for h in hijos if h["linea"] == tope.linea and h["estado"] in aprobacion.VIVAS):
             _validar_tope(tope, hijo, tactical.moneda, maximos.get((hijo["origen"], hijo["id"])))
     return nombre, fecha_hasta
 
@@ -1028,7 +1157,7 @@ def _maximos_por_tienda(
         return {}
     salida: dict[tuple[str, int], tuple[int, Decimal]] = {}
     for origen, filas in _FILAS_POR_TIENDA.items():
-        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] == "activa"})
+        ids = sorted({h["id"] for h in hijos if h["origen"] == origen and h["estado"] in aprobacion.VIVAS})
         if not ids:
             continue
         usados = tienda_scope.usado_por_contador(db, filas, ids)
@@ -1101,7 +1230,7 @@ def _editar_hijos(
     usuario_id: int,
 ) -> None:
     for hijo in hijos:
-        if hijo["estado"] != "activa" or hijo["origen"] in TOTALES_DE_FACTURA:
+        if hijo["estado"] not in aprobacion.VIVAS or hijo["origen"] in TOTALES_DE_FACTURA:
             continue
         numero = hijo["linea"]
         try:
@@ -1178,6 +1307,7 @@ def reemplazar(
             if data.fecha_hasta < hoy:
                 raise TacticalError(f"La fecha hasta no puede ser anterior a hoy ({_fecha(hoy)})")
         hijos = serializar(db, [tactical])[0]["lineas"]
+        dinero = _dinero(db, tactical)
         antes = {**_cabecera(tactical), "tactical_id": tactical.id, "lineas": _definicion_de(hijos)}
         conservadas = _conservables(tactical, data, hijos)
         heredadas = _heredadas(tactical, data, hijos)  # before the children are voided
@@ -1197,6 +1327,7 @@ def reemplazar(
             "reemplazados": reemplazados,
         }
         _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        _a_pendiente_si_cambio(db, tactical, dinero, usuario_id)
         facturas = _pedidos_de_facturas(db, tactical_id)
         db.commit()
     except campanas.SellOutRecalculando as exc:
@@ -1256,7 +1387,7 @@ def _conservables(tactical: Tactical, data: TacticalIn, hijos: list[dict]) -> se
         return set()
     por_linea: dict[int, list[dict]] = defaultdict(list)
     for h in hijos:
-        if h["estado"] == "activa":
+        if h["estado"] in aprobacion.VIVAS:
             por_linea[h["linea"]].append(h)
     conservadas = set()
     for numero, linea in enumerate(data.lineas, start=1):
@@ -1287,7 +1418,7 @@ def _validar_topes_usados(db: Session, tactical: Tactical, data: TacticalIn, hij
         return
     por_linea: dict[int, list[dict]] = defaultdict(list)
     for h in hijos:
-        if h["estado"] == "activa":
+        if h["estado"] in aprobacion.VIVAS:
             por_linea[h["linea"]].append(h)
     pares: list[tuple[int, TacticalLineaIn, list[dict]]] = []
     for numero, linea in enumerate(data.lineas, start=1):
@@ -1321,7 +1452,9 @@ def _mismo_alcance(linea: TacticalLineaIn, actuales: list[dict]) -> bool:
 def _sin_modo_manual(db: Session, hijos: list[dict]) -> None:
     """An invoice-total purchase a manual cost mode names (`sell_in_modos_producto.compra_id`, append-only) cannot
     be voided by an edit: that mode would point at a voided load."""
-    compra_ids = {h["id"]: h["linea"] for h in hijos if h["origen"] == "sell_in_compra" and h["estado"] == "activa"}
+    compra_ids = {
+        h["id"]: h["linea"] for h in hijos if h["origen"] == "sell_in_compra" and h["estado"] in aprobacion.VIVAS
+    }
     if not compra_ids:
         return
     usadas = {
@@ -1359,7 +1492,7 @@ def _tasas_al_cobro(db: Session, tactical: Tactical, data: TacticalIn) -> dict[t
     return {
         (linea, _sufijo(nombre, linea)): (tasa, definido)
         for linea, nombre, tasa, definido in db.query(c.tactical_linea, c.nombre, c.tipo_cambio, c.tc_definido_en)
-        .filter(c.tactical_id == tactical.id, c.estado == "activa", c.tc_definido_en.isnot(None))
+        .filter(c.tactical_id == tactical.id, c.estado.in_(aprobacion.VIVAS), c.tc_definido_en.isnot(None))
         .order_by(c.id)
     }
 
@@ -1368,7 +1501,7 @@ def _poner_tasas(db: Session, tactical_id: int, tasas: dict[tuple[int, str], tup
     if not tasas:
         return
     for campana in db.query(SellOutCampana).filter(
-        SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado == "activa"
+        SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado.in_(aprobacion.VIVAS)
     ):
         tasa = tasas.get((campana.tactical_linea, _sufijo(campana.nombre, campana.tactical_linea)))
         if tasa is not None:
@@ -1382,7 +1515,7 @@ def _reemplazar_hijos(db: Session, tactical_id: int, conservadas: set[int], usua
     anuladas = {"campana_ids": [], "bono_ids": [], "compra_ids": []}
     for (cid,) in (
         db.query(SellOutCampana.id)
-        .filter(SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado == "activa")
+        .filter(SellOutCampana.tactical_id == tactical_id, SellOutCampana.estado.in_(aprobacion.VIVAS))
         .order_by("id")
     ):
         campana = campanas.bloquear(db, cid)
@@ -1390,7 +1523,7 @@ def _reemplazar_hijos(db: Session, tactical_id: int, conservadas: set[int], usua
         anuladas["campana_ids"].append(cid)
     for (bid,) in (
         db.query(SellInBonoMarca.id)
-        .filter(SellInBonoMarca.tactical_id == tactical_id, SellInBonoMarca.estado == "activa")
+        .filter(SellInBonoMarca.tactical_id == tactical_id, SellInBonoMarca.estado.in_(aprobacion.VIVAS))
         .order_by("id")
     ):
         bonos_crud.anular_bono_sin_commit(db, bid, usuario_id, MOTIVO_REEMPLAZO, es_masivo=True)
@@ -1399,7 +1532,7 @@ def _reemplazar_hijos(db: Session, tactical_id: int, conservadas: set[int], usua
         db.query(SellInCompra.id)
         .filter(
             SellInCompra.tactical_id == tactical_id,
-            SellInCompra.estado == "activa",
+            SellInCompra.estado.in_(aprobacion.VIVAS),
             SellInCompra.tactical_linea.notin_(conservadas or {0}),
         )
         .order_by("id")
@@ -1434,7 +1567,7 @@ class Filtros:
     tipos: list[str]  # the kinds the caller may read (and asked for)
     marca: Optional[str] = None
     moneda: Optional[str] = None  # ARS | USD: the tactical's own currency
-    estado: Optional[str] = None  # vigentes | vencidos | anulados
+    estado: Optional[str] = None  # vigentes | vencidos | anulados | pendientes_aprobacion
     desde: Optional[date] = None
     hasta: Optional[date] = None
     q: Optional[str] = None
@@ -1525,6 +1658,8 @@ def _consulta(db: Session, filtros: Filtros, hoy: date) -> Query:
         query = query.filter(Tactical.estado == "activo", or_(Tactical.fecha_hasta >= hoy, _es_por_factura()))
     elif filtros.estado == "vencidos":
         query = query.filter(Tactical.estado == "activo", Tactical.fecha_hasta < hoy, ~_es_por_factura())
+    elif filtros.estado == "pendientes_aprobacion":  # S8: what the approver still has to review
+        query = query.filter(Tactical.estado == "pendiente")
     if filtros.desde is not None:
         query = query.filter(Tactical.fecha_hasta >= filtros.desde)
     if filtros.hasta is not None:
@@ -1567,7 +1702,8 @@ def _usado_por_linea(ids: Select) -> Subquery:
     `bonos_crud.serializar`, `_lineas_compras`), rounded to cents per child. A child that used nothing is a 0 row.
     `estimado` is 1 when some of a USD cost bonus's amount is still an estimate (S10, `bonos_costo.fila_usd_estimada`).
     `tope` is its money cap in that same currency (S6): its `tope_monto`, or the total of a Monto total child (the
-    total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one."""
+    total is its cap; a cost bonus keeps it in ARS, converted at the tactical's fixed rate); NULL without one. A pending
+    child applies nothing, so it is left out (tacticals approval S12)."""
     cero = literal(0)
 
     def tope(modelo):
@@ -1583,7 +1719,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         )
         .select_from(SellOutCampana)
         .outerjoin(SellOutConsumo, SellOutConsumo.campana_id == SellOutCampana.id)
-        .where(SellOutCampana.tactical_id.in_(ids))
+        .where(SellOutCampana.tactical_id.in_(ids), SellOutCampana.estado != aprobacion.PENDIENTE)
         .group_by(SellOutCampana.id)
     )
     # A cost bonus: what its sales got in the bonus's own currency, as `monto_generado`: ARS, or a USD bonus's USD.
@@ -1605,7 +1741,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         )
         .select_from(SellInBonoMarca)
         .outerjoin(SellInBonoConsumo, SellInBonoConsumo.bono_id == SellInBonoMarca.id)
-        .where(SellInBonoMarca.tactical_id.in_(ids), costo)
+        .where(SellInBonoMarca.tactical_id.in_(ids), costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
         .group_by(SellInBonoMarca.id)
     )
     # Any other bonus: its active purchases' assigned amounts in the bonus's own currency (another one is not added).
@@ -1627,7 +1763,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
             ),
         )
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
-        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo)
+        .where(SellInBonoMarca.tactical_id.in_(ids), ~costo, SellInBonoMarca.estado != aprobacion.PENDIENTE)
         .group_by(SellInBonoMarca.id)
     )
     # An invoice total: what its sales took (ARS), in a USD purchase's currency at its own rate.
@@ -1644,7 +1780,7 @@ def _usado_por_linea(ids: Select) -> Subquery:
         .select_from(SellInCompra)
         .outerjoin(SellInCompraItem, SellInCompraItem.compra_id == SellInCompra.id)
         .outerjoin(SellInConsumo, SellInConsumo.compra_item_id == SellInCompraItem.id)
-        .where(SellInCompra.tactical_id.in_(ids))
+        .where(SellInCompra.tactical_id.in_(ids), SellInCompra.estado != aprobacion.PENDIENTE)
         .group_by(SellInCompra.id)
     )
     return union_all(campanas_, bonos_costo_, bonos_compras, compras_).subquery()
@@ -1660,6 +1796,9 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     cobrado = exists().where(TacticalCobranza.tactical_id == Tactical.id)
     base = (
         _consulta(db, filtros, hoy or date.today())
+        # Money KPIs count only what applies (tacticals approval S12): a pending tactical is counted apart
+        # (`contar_pendientes_aprobacion`), whatever the estado filter.
+        .filter(Tactical.estado != aprobacion.PENDIENTE)
         .order_by(None)
         .with_entities(Tactical.id.label("id"), cobrado.label("cobrado"))
         .subquery()
@@ -1709,6 +1848,104 @@ def kpis(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> dict:
     }
 
 
+# --- approval inbox (tacticals approval S11, S12) ---------------------------------------------------------------------
+
+CARGAS_PENDIENTES_MAX = 200  # the largest page of the approval inbox
+
+
+def _sueltas(modelo):
+    """Its standalone rows waiting for approval: `pendiente` and of no tactical (a tactical's line is approved with
+    its tactical)."""
+    return and_(modelo.estado == aprobacion.PENDIENTE, modelo.tactical_id.is_(None))
+
+
+def _consultas_sueltas(db: Session, tipos: list[str]) -> list[tuple[str, Any, Query]]:
+    """`(origen, model, query)` per kind of standalone load the caller may read: a sell in bonus or purchase, a sell
+    out campaign or a legacy profit offset (S10: a sell out discount on profit, never a tactical's line). A purchase a
+    bonus generated (`origen = 'bono_marca'`) follows its bonus and is never a load."""
+    salida: list[tuple[str, Any, Query]] = []
+    if "sell_in" in tipos:
+        salida.append(("sell_in_bono", SellInBonoMarca, db.query(SellInBonoMarca).filter(_sueltas(SellInBonoMarca))))
+        compras_ = db.query(SellInCompra).filter(_sueltas(SellInCompra), SellInCompra.origen == "manual")
+        salida.append(("sell_in_compra", SellInCompra, compras_))
+    if "sell_out" in tipos:
+        salida.append(("sell_out_campana", SellOutCampana, db.query(SellOutCampana).filter(_sueltas(SellOutCampana))))
+        offsets = db.query(OffsetGanancia).filter(OffsetGanancia.estado == aprobacion.PENDIENTE)
+        salida.append(("offset_ganancia", OffsetGanancia, offsets))
+    return salida
+
+
+def _creada(modelo):
+    """When the load was stored: a legacy offset names it `fecha_creacion`."""
+    return modelo.fecha_creacion if modelo is OffsetGanancia else modelo.created_at
+
+
+def _carga(origen: str, fila: Any) -> dict:
+    if origen == "sell_in_bono":
+        nombre = fila.descripcion or f"Bono {fila.marca or fila.categoria or f'#{fila.id}'}"
+        desde, hasta, marca = fila.fecha_desde, fila.fecha_hasta, fila.marca
+    elif origen == "sell_in_compra":
+        nombre = fila.descripcion or f"Compra #{fila.id}"
+        desde = hasta = fila.fecha_compra
+        marca = None
+    elif origen == "offset_ganancia":
+        alcance = fila.marca or fila.categoria or (f"producto {fila.item_id}" if fila.item_id else None)
+        nombre = fila.descripcion or f"Offset {alcance or f'#{fila.id}'}"
+        desde, hasta, marca = fila.fecha_desde, fila.fecha_hasta, fila.marca
+    else:
+        nombre, desde, hasta, marca = fila.nombre, fila.fecha_desde, fila.fecha_hasta, None
+    return {
+        "origen": origen,
+        "id": fila.id,
+        "nombre": nombre,
+        "marca": marca,
+        "moneda": fila.moneda or "ARS",  # an offset may have none: it reads ARS, as its API answers
+        "fecha_desde": desde,
+        "fecha_hasta": hasta,
+        "usuario_id": fila.usuario_id,
+        "created_at": fila.fecha_creacion if origen == "offset_ganancia" else fila.created_at,
+    }
+
+
+def cargas_pendientes(
+    db: Session, tipos: list[str], page: int = 1, page_size: int = CARGAS_PENDIENTES_MAX
+) -> list[dict]:
+    """One page of the standalone loads waiting for approval (S11: "no pending item may be unreachable from the UI"),
+    of the kinds in `tipos`, newest first across kinds; `contar_cargas_pendientes` counts them all. Each is
+    `{origen, id, ...}` with the same `origen` as a tactical's line, so the screen opens its record's panel, where it
+    is approved (an offset is approved from the inbox itself)."""
+    hasta = page * page_size  # every kind's first `hasta` rows hold the first `hasta` of the merged order
+    filas = []
+    for origen, modelo, query in _consultas_sueltas(db, tipos):
+        recientes = query.order_by(_creada(modelo).desc(), modelo.id.desc()).limit(hasta)
+        filas += [_carga(origen, fila) for fila in recientes]
+    filas.sort(key=lambda c: (c["created_at"], c["id"]), reverse=True)
+    return filas[hasta - page_size : hasta]
+
+
+def contar_cargas_pendientes(db: Session, tipos: list[str]) -> int:
+    """How many standalone loads of the kinds in `tipos` wait for approval (the pages of `cargas_pendientes`)."""
+    return sum(query.order_by(None).count() for _, _, query in _consultas_sueltas(db, tipos))
+
+
+def con_autores(db: Session, cargas: list[dict]) -> list[dict]:
+    """`cargas_pendientes` with who loaded each one (`usuario_nombre`), for the API: one query."""
+    ids = {c["usuario_id"] for c in cargas} - {None}
+    nombres = dict(db.query(Usuario.id, Usuario.nombre).filter(Usuario.id.in_(ids))) if ids else {}
+    for c in cargas:
+        c["usuario_nombre"] = nombres.get(c["usuario_id"])
+    return cargas
+
+
+def contar_pendientes_aprobacion(db: Session, filtros: Filtros, hoy: Optional[date] = None) -> int:
+    """How many loads wait for approval (S12: "a separate 'N pendientes de aprobación' count"): the pending
+    tacticals the other filters match (whatever the estado filter asks) plus every standalone pending load of the
+    kinds in `filtros.tipos`. That is what the "Pendientes de aprobación" filter shows."""
+    pendientes = replace(filtros, estado="pendientes_aprobacion")
+    tacticals_ = _consulta(db, pendientes, hoy or date.today()).order_by(None).count()
+    return tacticals_ + contar_cargas_pendientes(db, filtros.tipos)
+
+
 # --- collection (tactical cobranza S1, S2) ----------------------------------------------------------------------------
 
 _COBRANZA_TEXTOS = ("nc_numero", "distribuidor", "otro_detalle", "observaciones")
@@ -1716,11 +1953,15 @@ _COBRANZA_TEXTOS = ("nc_numero", "distribuidor", "otro_detalle", "observaciones"
 
 def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: int) -> Optional[Tactical]:
     """Save the tactical's one collection record (create or replace every field): it reads "Cobrado". None when the
-    tactical does not exist. The tactical row is locked so two saves never race into a duplicate."""
+    tactical does not exist; `TacticalPendienteDeCobro` (a 409) while it waits for approval (tacticals approval S16:
+    it is approved before it is collected; undoing a record it kept from before stays allowed, `deshacer_cobro`). The
+    tactical row is locked so two saves never race into a duplicate."""
     try:
         tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
         if tactical is None:
             return None
+        if tactical.estado == "pendiente":
+            raise TacticalPendienteDeCobro(SIN_APROBAR_COBRO)
         cobranza = db.query(TacticalCobranza).filter(TacticalCobranza.tactical_id == tactical_id).first()
         # The collection rate is no longer required (sell-in-costo-si T5 PR A, L24): it only converted the per-sale
         # cost bonuses, and nothing applies them any more. Still accepted where a USD cost line exists, and a stored
@@ -1745,6 +1986,11 @@ def cobrar(db: Session, tactical_id: int, data: TacticalCobranzaIn, usuario_id: 
     return tactical
 
 
+class TacticalPendienteDeCobro(TacticalError):
+    """A tactical waiting for approval is not collected (S16); the message is the screen's tooltip."""
+
+
+SIN_APROBAR_COBRO = "Se aprueba antes de cobrar"
 TC_COBRO_SIN_USD = (
     "Solo un tactical de sell in en USD con tipo de cambio al cobro y una línea en USD lleva tipo de cambio del cobro"
 )
@@ -1759,7 +2005,7 @@ def _bonos_al_cobro(db: Session, tactical: Tactical) -> list[int]:
     return [
         bid
         for (bid,) in db.query(b.id).filter(
-            b.tactical_id == tactical.id, b.base == BASE_COSTO_VENTA, b.moneda == "USD", b.estado == "activa"
+            b.tactical_id == tactical.id, b.base == BASE_COSTO_VENTA, b.moneda == "USD", b.estado.in_(aprobacion.VIVAS)
         )
     ]
 
@@ -1963,9 +2209,10 @@ def _lineas_pendientes(db: Session, ids: list[int]) -> list[dict]:
     """The invoice totals still waiting for their invoice (or voided while waiting), shaped like `_lineas_compras`:
     nothing used yet. An applied one is read as the purchase it became."""
     salida = []
-    for fila, numero in (
-        db.query(TacticalFacturaPendiente, PedidoCompra.numero)
+    for fila, numero, estado_tactical in (
+        db.query(TacticalFacturaPendiente, PedidoCompra.numero, Tactical.estado)
         .join(PedidoCompra, PedidoCompra.id == TacticalFacturaPendiente.pedido_id)
+        .join(Tactical, Tactical.id == TacticalFacturaPendiente.tactical_id)
         .filter(TacticalFacturaPendiente.tactical_id.in_(ids), TacticalFacturaPendiente.estado != "aplicada")
     ):
         salida.append(
@@ -1974,7 +2221,7 @@ def _lineas_pendientes(db: Session, ids: list[int]) -> list[dict]:
                 "id": fila.id,
                 "linea": fila.tactical_linea,
                 "origen": ORIGEN_PENDIENTE,
-                "estado": "activa" if fila.estado == "pendiente" else "anulada",
+                "estado": aprobacion.estado_de_linea(estado_tactical) if fila.estado == "pendiente" else "anulada",
                 "alcance": "factura",
                 "item_ids": [],
                 "marca": None,
@@ -2036,6 +2283,16 @@ def _bonos_estimados(db: Session, ids: list[int]) -> set[int]:
     )
 
 
+def con_aprobadores(db: Session, salida: list[dict]) -> list[dict]:
+    """`serializar`'s tacticals with the approver's name (`aprobado_por_nombre`, S8: "Aprobado por X el ..."), for the
+    API: one query, only when some was approved."""
+    ids = {t["aprobado_por"] for t in salida} - {None}
+    nombres = dict(db.query(Usuario.id, Usuario.nombre).filter(Usuario.id.in_(ids))) if ids else {}
+    for t in salida:
+        t["aprobado_por_nombre"] = nombres.get(t["aprobado_por"])
+    return salida
+
+
 def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     """Each tactical with its lines, one per child, in line order (module docstring): a few queries per page."""
     tacticals = list(tacticals)
@@ -2076,8 +2333,9 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
     columnas = (
         "id", "tipo", "nombre", "marca", "referencia", "fecha_desde", "fecha_hasta", "moneda", "tc_modo",
         "tipo_cambio", "incluye_iva", "acumulable", "todas_tiendas", "tope_compartido", "nota", "estado",
-        "usuario_id", "created_at", "updated_at",
+        "usuario_id", "aprobado_por", "aprobado_at", "created_at", "updated_at",
     )  # fmt: skip
+
     return [
         {
             **{c: getattr(t, c) for c in columnas},
@@ -2085,7 +2343,9 @@ def serializar(db: Session, tacticals: Iterable[Tactical]) -> list[dict]:
             "marcas": [fila.marca for fila in t.marcas],
             "por_factura": _hijos_por_factura(t, de_tactical[t.id]),
             # Some active invoice line still waits for its operation's invoice (sell in factura pendiente S4).
-            "esperando_factura": any(h["esperando_factura"] and h["estado"] == "activa" for h in de_tactical[t.id]),
+            "esperando_factura": any(
+                h["esperando_factura"] and h["estado"] in aprobacion.VIVAS for h in de_tactical[t.id]
+            ),
             "lineas": de_tactical[t.id],
             "cobranza": _cobranza(t.cobranza),
             # Never asked any more (sell-in-costo-si T5 PR A, L24): no cost bonus is converted per sale (`cobrar`).

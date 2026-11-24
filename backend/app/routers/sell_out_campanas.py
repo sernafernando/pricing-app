@@ -112,6 +112,7 @@ from app.schemas.sell_out import (
 )
 from app.services.permisos_service import verificar_permiso
 from app.services.pm_scope import get_pares_marca_categoria_usuario
+from app.routers.sell_in_compras import aprobar_o_409, requiere_aprobar
 from app.services.sell_out import campanas as service
 from app.services.sell_out import criterio as criterio_service
 from app.services.sell_out import edicion_masiva, programas, renovacion, resumen
@@ -242,8 +243,9 @@ def listar_consumos(
 def crear_campana(
     data: SellOutCampanaIn, user: Usuario = Depends(requiere_gestionar), db: Session = Depends(get_db)
 ) -> dict:
+    """Load a campaign. It starts `pendiente` (tacticals approval S6): it applies to nothing until approved."""
     try:
-        campana = service.crear_campana(db, data, user.id)
+        campana = service.crear_campana(db, data, user.id, estado="pendiente")
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     except programas.ProgramaError as exc:
@@ -364,6 +366,17 @@ def editar_campanas_masivo(
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     return {"editadas": editadas, "sin_cambio": sin_cambio}
+
+
+@router.post("/{campana_id}/aprobar", response_model=SellOutCampanaOut)
+def aprobar_campana(campana_id: int, user: Usuario = Depends(requiere_aprobar), db: Session = Depends(get_db)) -> dict:
+    """Approve a pending campaign loaded on its own (tacticals approval S6): it is queued for `sell_out.drain`. 409
+    when it is already approved, voided, a tactical's line (approved with its tactical), or being rebuilt."""
+    try:
+        campana = aprobar_o_409(db, SellOutCampana, campana_id, user.id)
+    except service.SellOutRecalculando as exc:
+        raise _error(db, exc) from exc
+    return resumen.serializar(db, [campana])[0]
 
 
 @router.post("/{campana_id}/anular", response_model=SellOutCampanaOut)

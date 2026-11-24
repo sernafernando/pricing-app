@@ -40,6 +40,7 @@ _MIGRATIONS = [
         "20261106_combo_consumos_item",
         "20261107_sell_out_reparto_criterio",
         "20261107_tacticals_tiendas",  # the store scope on tacticals; its own rules in tests/migrations/
+        "20261122_tacticals_aprobacion",  # the 'pendiente' state (tacticals approval); its own rules in tests/migrations/
     )
 ]
 TABLES = (
@@ -64,8 +65,9 @@ _STUBS = [
     "CREATE TABLE usuarios_permisos_override (usuario_id INTEGER, permiso_id INTEGER)",
     # What `20261105_tacticals` also alters on the sell-in side.
     "CREATE TABLE sell_in_bonos_marca (id BIGINT PRIMARY KEY, base VARCHAR(16), tipo VARCHAR(16), moneda VARCHAR(3), "
-    "alcance VARCHAR(16), incluye_iva BOOLEAN)",
-    "CREATE TABLE sell_in_compras (id BIGINT PRIMARY KEY)",
+    "alcance VARCHAR(16), incluye_iva BOOLEAN, estado VARCHAR(16) NOT NULL DEFAULT 'activa')",
+    # `estado`: what `20261122_tacticals_aprobacion` widens on the sell-in side.
+    "CREATE TABLE sell_in_compras (id BIGINT PRIMARY KEY, estado VARCHAR(16) NOT NULL DEFAULT 'activa')",
     # What `20261106_combo_consumos_item` also widens on the sell-in side.
     "CREATE TABLE sell_in_bono_consumos (id BIGSERIAL PRIMARY KEY, bono_id BIGINT, canal TEXT, venta_ref BIGINT, "
     "item_id INTEGER, CONSTRAINT uq_sell_in_bono_consumos_bono_canal_venta UNIQUE (bono_id, canal, venta_ref))",

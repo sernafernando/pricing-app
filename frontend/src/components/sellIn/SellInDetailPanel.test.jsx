@@ -6,7 +6,7 @@ import { COMPRA_ARS, COMPRA_BONO, COMPRA_CON_OPERACIONES, COMPRA_USD_ANULADA } f
 import SellInDetailPanel from './SellInDetailPanel';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInAPI: { detalle: vi.fn(), anular: vi.fn() },
+  sellInAPI: { detalle: vi.fn(), anular: vi.fn(), aprobar: vi.fn() },
 }));
 
 const ANULADA = { ...COMPRA_ARS, estado: 'anulada', aplica: false };
@@ -174,5 +174,28 @@ describe('SellInDetailPanel', () => {
 
     expect(await screen.findByText('Reparto proporcional')).toBeInTheDocument();
     expect(screen.queryByText(/de lo facturado/)).not.toBeInTheDocument();
+  });
+});
+
+describe('SellInDetailPanel — approval (tacticals approval S6, S8)', () => {
+  it('an active purchase still reads Activa, with nothing to approve', async () => {
+    renderPanel({ puedeAprobar: true });
+    expect(await screen.findByText('Activa')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
+  });
+
+  it('a pending purchase loaded on its own is approved after a confirmation, and the list reloads', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockResolvedValue({ data: { ...COMPRA_ARS, estado: 'pendiente', tactical_id: null } });
+    sellInAPI.aprobar.mockResolvedValue({ data: COMPRA_ARS });
+    const { onChanged } = renderPanel({ puedeAprobar: true });
+
+    expect(await screen.findByText('Pendiente de aprobación')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aprobar' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar aprobación' }));
+
+    expect(sellInAPI.aprobar).toHaveBeenCalledWith(1);
+    expect(await screen.findByText('Activa')).toBeInTheDocument();
+    expect(onChanged).toHaveBeenCalled();
   });
 });

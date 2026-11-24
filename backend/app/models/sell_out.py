@@ -88,7 +88,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import false, func, text, true
 
 from app.core.database import Base
-from app.models.tactical import TACTICAL_LINEA
+from app.models.tactical import ESTADO_LINEA, TACTICAL_LINEA
 
 # Also declared by migration `20261225_sell_out_programas` (the schema parity test compares them).
 FK_SELL_OUT_CAMPANAS_PROGRAMA_ID = "fk_sell_out_campanas_programa_id"
@@ -150,7 +150,7 @@ class SellOutCampana(Base):
         CheckConstraint("tipo_cambio IS NULL OR tipo_cambio > 0", name="ck_sell_out_campanas_tc_positivo"),
         CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_out_campanas_tope_unidades"),
         CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_out_campanas_tope_monto"),
-        CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_out_campanas_estado"),
+        CheckConstraint(ESTADO_LINEA, name="ck_sell_out_campanas_estado"),
         UniqueConstraint("offset_origen_id", name="uq_sell_out_campanas_offset_origen_id"),
         Index("ix_sell_out_campanas_programa_id", "programa_id"),
         Index("ix_sell_out_campanas_renovada_de_id", "renovada_de_id"),

@@ -220,6 +220,22 @@ def test_the_hook_moves_cost_percentage_offsets_by_the_difference(engine: Engine
     ) == [(1, D("4000.00"), D("4.00")), (2, D("777.00"), D("0.78"))]
 
 
+def test_a_pending_offset_is_not_repriced(engine: Engine, db: Session) -> None:
+    """Tacticals approval S10 (verifier B2): an offset pending approval applies to nothing, so a cost change must not
+    re-price its consumptions with its pending (edited) percentage; its consumptions and summaries stay as they
+    were."""
+    _mundo(engine)
+    venta = w.venta_ml(engine, A, datetime(2026, 10, 5, 15), cantidad=2)
+    _cron(db)
+    _offsets(engine, venta)
+    w.run(engine, "UPDATE offsets_ganancia SET porcentaje = 50, estado = 'pendiente' WHERE id = 1")
+    antes = _offsets_estado(engine)
+
+    _cambio(engine, db, A, date(2026, 10, 3), "20.00000")
+
+    assert _offsets_estado(engine) == antes
+
+
 _OFFSET_TABLAS = (
     "offset_grupo_consumo",
     "offset_individual_consumo",

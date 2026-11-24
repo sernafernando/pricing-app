@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../services/api';
 import styles from './TabRentabilidad.module.css';
 import OffsetMigradoBadge from './offsets/OffsetMigradoBadge';
+import { StatusPill } from './kit';
+import AvisoAprobacion from './tacticals/AvisoAprobacion';
 import { withSelectedBrands } from '../utils/brandOptions';
 
 // Map apiBasePath to default channel selection
@@ -447,6 +449,12 @@ export default function ModalOffset({
 
         <div className={styles.offsetForm}>
           <h4>{editandoOffset ? 'Editar Offset' : 'Nuevo Offset'}</h4>
+          {/* Tacticals approval S10: a new offset waits for approval; a money edit of an approved one sends it back. */}
+          <AvisoAprobacion
+            editando={!!editandoOffset}
+            estado={offsets.find((o) => o.id === editandoOffset)?.estado}
+            de="offset"
+          />
 
           {/* Modo: Individual o Grupo */}
           <div className={styles.formRow}>
@@ -1077,6 +1085,12 @@ export default function ModalOffset({
                       <td>
                         {offset.descripcion || '-'}
                         {offset.campana_id ? <><br/><OffsetMigradoBadge campanaId={offset.campana_id} /></> : null}
+                        {offset.estado === 'pendiente' && (
+                          <>
+                            <br />
+                            <StatusPill tone="warning" variant="soft">Pendiente de aprobación</StatusPill>
+                          </>
+                        )}
                       </td>
                       <td className={styles.tdSmall}>
                         {formatFecha(offset.fecha_desde)}{offset.fecha_hasta ? ` - ${formatFecha(offset.fecha_hasta)}` : '+'}

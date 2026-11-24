@@ -31,10 +31,12 @@ from app.services import tacticals as service
 from app.services.sell_in import bonos, bonos_crud
 from app.services.sell_in.facturas_elegidas import Facturado, facturado_elegido, nc_del_pedido_para_eleccion
 from app.services.sell_out import edicion_masiva, renovacion
+from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 
-pytestmark = pytest.mark.postgres
+# Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 USUARIO = 7
 TPLINK = bw.TPLINK
@@ -53,7 +55,18 @@ TABLES = [
     SellOutConsumo.__table__,
     SellOutDirty.__table__,
 ]
-STUBS = [*bw.STUBS, "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)"]
+# Every column of a legacy offset with no foreign key: the approval inbox reads them (tacticals approval S10/S11), and
+# campaigns point at its id.
+STUBS = [
+    *bw.STUBS,
+    "CREATE TABLE offsets_ganancia (id SERIAL PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100), "
+    "subcategoria_id INTEGER, item_id INTEGER, monto DOUBLE PRECISION, tipo_offset VARCHAR(20), moneda VARCHAR(3), "
+    "tipo_cambio DOUBLE PRECISION, porcentaje DOUBLE PRECISION, descripcion VARCHAR(255), "
+    "fecha_desde DATE NOT NULL DEFAULT '2026-11-01', fecha_hasta DATE, grupo_id INTEGER, max_unidades INTEGER, "
+    "max_monto_usd DOUBLE PRECISION, monto_consumido DOUBLE PRECISION, aplica_ml BOOLEAN, aplica_fuera BOOLEAN, "
+    "aplica_tienda_nube BOOLEAN, estado VARCHAR(16) NOT NULL DEFAULT 'activa', usuario_id INTEGER, "
+    "fecha_creacion TIMESTAMPTZ DEFAULT now(), fecha_modificacion TIMESTAMPTZ)",
+]
 
 
 def _install(engine: Engine) -> None:

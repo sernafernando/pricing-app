@@ -8,10 +8,19 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
-import { COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
+import { CARGA_OFFSET, CARGAS_PENDIENTES, COBRANZA_FONDO, KPIS_COBRANZA, TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
 vi.mock('../../services/tacticalsAPI', () => ({
-  tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn(), cobrar: vi.fn(), deshacerCobro: vi.fn() },
+  tacticalsAPI: {
+    listar: vi.fn(),
+    cargasPendientes: vi.fn(),
+    editar: vi.fn(),
+    anular: vi.fn(),
+    aprobar: vi.fn(),
+    aprobarOffset: vi.fn(),
+    cobrar: vi.fn(),
+    deshacerCobro: vi.fn(),
+  },
 }));
 
 const BPS = TACTICAL_BPS;
@@ -27,6 +36,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 10, 12, 10));
   tacticalsAPI.listar.mockResolvedValue({ data: pagina([BPS, REBATE], 2) });
+  tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: [] } });
 });
 
 afterEach(() => {
@@ -412,12 +422,14 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     tacticalsAPI.cobrar.mockResolvedValue({ data: COBRADO });
   });
 
-  it('shows Pendientes and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
+  it('shows Pendientes de cobro and Cobrados with their count, generated of cap per currency and how many have no cap', async () => {
     render(<TacticalsList marcas={MARCAS} />);
 
     const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
-    expect(within(kpis).getByText('Pendientes').closest('div')).toHaveTextContent(
-      'Pendientes12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
+    // Tacticals approval S16: "Pendientes" alone read like the approval count beside it.
+    expect(within(kpis).queryByText('Pendientes')).not.toBeInTheDocument();
+    expect(within(kpis).getByText('Pendientes de cobro').closest('div')).toHaveTextContent(
+      'Pendientes de cobro12 tacticalsARS 4.380.250 de 6.000.000 · USD 1.920 · tope 800 (líneas con tope)3 sin tope',
     );
     expect(within(kpis).getByText('Cobrados').closest('div')).toHaveTextContent(
       /^Cobrados7 tacticalsARS 2\.115\.000 de 2\.500\.000 · USD 640 de 800$/,
@@ -431,7 +443,7 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     render(<TacticalsList marcas={MARCAS} />);
 
     const region = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
-    expect(within(region).getByText('Pendientes').closest('div')).toHaveTextContent('Pendientes1 tactical—');
+    expect(within(region).getByText('Pendientes de cobro').closest('div')).toHaveTextContent('Pendientes de cobro1 tactical—');
   });
 
   it('filters Pendientes / Cobrados / Todos, and Limpiar filtros goes back to Todos', async () => {
@@ -441,7 +453,7 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
 
     await userEvent.click(within(cobranza).getByRole('button', { name: 'Cobrados' }));
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'cobrados' }));
-    await userEvent.click(within(cobranza).getByRole('button', { name: 'Pendientes' }));
+    await userEvent.click(within(cobranza).getByRole('button', { name: 'Pendientes de cobro' }));
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ cobranza: 'pendientes' }));
     await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
     await waitFor(() => expect(ultimaConsulta()).toEqual({ estado: 'vigentes', page: 1, page_size: 50 }));
@@ -472,6 +484,35 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
   });
 
+  // Tacticals approval S16: "a tactical pending approval must not offer 'Cargar cobro' (disabled with tooltip 'Se aprueba
+  // antes de cobrar')".
+  it('a tactical waiting for approval shows Cargar cobro disabled with the tooltip, and it opens nothing', async () => {
+    const pendiente = { ...BPS, estado: 'pendiente', cobranza: null };
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([pendiente, COBRADO], 2), kpis: KPIS_COBRANZA } });
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    const boton = screen.getByRole('button', { name: 'Cargar cobro de Tacticals BPS Noviembre Q1FY27' });
+    expect(boton).toHaveAttribute('aria-disabled', 'true');
+    expect(boton).toHaveAttribute('title', 'Se aprueba antes de cobrar');
+    expect(boton).toHaveAccessibleDescription('Se aprueba antes de cobrar');
+    await userEvent.click(boton);
+    expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+    expect(boton).toHaveAttribute('aria-expanded', 'false');
+    // An approved row keeps its working button.
+    expect(screen.getByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('a tactical back to pending that kept its record shows Editar cobro disabled too', async () => {
+    const pendiente = { ...COBRADO, estado: 'pendiente' };
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([pendiente], 1), kpis: KPIS_COBRANZA } });
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+
+    const boton = await screen.findByRole('button', { name: 'Editar cobro de Rebate HP Q1FY27' });
+    expect(boton).toHaveAttribute('aria-disabled', 'true');
+    expect(boton).toHaveAttribute('title', 'Se aprueba antes de cobrar');
+  });
+
   it('a collected row offers Editar cobro, and the box toggles closed', async () => {
     render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
     await screen.findByText('Tacticals BPS Noviembre Q1FY27');
@@ -488,5 +529,269 @@ describe('TacticalsList Cobranza (handoffs/tactical-cobranza-tarea.md S3, S4)', 
     expect(screen.getByLabelText('Distribuidor')).toHaveValue('Grupo Núcleo');
     await userEvent.click(boton);
     expect(screen.queryByRole('form', { name: /Cobranza de/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TacticalsList approval (handoffs/tacticals-aprobacion-plan.md S8)', () => {
+  const PENDIENTE = { ...BPS, estado: 'pendiente', lineas: BPS.lineas.map((l) => ({ ...l, estado: 'pendiente' })) };
+  const APROBADO = { ...REBATE, aprobado_por: 9, aprobado_por_nombre: 'Alejandro', aprobado_at: '2026-11-10T15:00:00Z' };
+
+  it('filters the tacticals pending approval', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Pendientes de aprobación' }));
+
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ estado: 'pendientes_aprobacion' }));
+  });
+
+  it('a pending tactical reads so, and an approved one says who approved it and when', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE, APROBADO]) });
+    render(<TacticalsList marcas={MARCAS} />);
+
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    expect(within(filaDe('Tacticals BPS Noviembre Q1FY27')).getByText('Pendiente de aprobación')).toBeInTheDocument();
+    expect(within(filaDe('Rebate HP Q1FY27')).getByText('Aprobado por Alejandro el 10/11/2026')).toBeInTheDocument();
+  });
+
+  it('offers Aprobar only with the permission and only on a pending tactical', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE, APROBADO]) });
+    const { unmount } = render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.queryByRole('menuitem', { name: 'Aprobar' })).not.toBeInTheDocument();
+    unmount();
+
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Acciones de Rebate HP Q1FY27' }));
+    expect(screen.queryByRole('menuitem', { name: 'Aprobar' })).not.toBeInTheDocument();
+  });
+
+  it('an approver who does not manage the kind still gets Aprobar', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Aprobar' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Anular' })).not.toBeInTheDocument();
+  });
+
+  it('asks for confirmation, approves and asks the list again', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    tacticalsAPI.aprobar.mockResolvedValue({ data: { ...PENDIENTE, estado: 'activo' } });
+    const onCambio = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeAprobar onCambio={onCambio} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Aprobar' }));
+
+    const dialogo = screen.getByRole('dialog', { name: '¿Aprobar Tacticals BPS Noviembre Q1FY27?' });
+    expect(dialogo).toHaveTextContent('Sus 3 líneas empiezan a aplicar');
+    expect(tacticalsAPI.aprobar).not.toHaveBeenCalled();
+    const pedidas = tacticalsAPI.listar.mock.calls.length;
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar tactical' }));
+
+    expect(tacticalsAPI.aprobar).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidas);
+    expect(onCambio).toHaveBeenCalled();
+  });
+
+  it("shows the server's refusal inside the dialog; Cancelar approves nothing", async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([PENDIENTE]) });
+    tacticalsAPI.aprobar.mockRejectedValue({ response: { status: 409, data: { error: { message: 'El tactical 1 ya está aprobado' } } } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Aprobar' }));
+    const dialogo = screen.getByRole('dialog');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar tactical' }));
+
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El tactical 1 ya está aprobado');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('TacticalsList approval inbox (handoffs/tacticals-aprobacion-plan.md S11, S12)', () => {
+  const PENDIENTE = { ...BPS, estado: 'pendiente', lineas: BPS.lineas.map((l) => ({ ...l, estado: 'pendiente' })) };
+  const sueltas = () => screen.getByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+
+  beforeEach(() => {
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([PENDIENTE]), kpis: KPIS_COBRANZA, pendientes_aprobacion: 4 } });
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: CARGAS_PENDIENTES } });
+  });
+
+  it('under the pending filter lists the standalone loads, and Aprobar opens the record where it is approved', async () => {
+    const onVerLinea = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeAprobar onVerLinea={onVerLinea} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    expect(tacticalsAPI.cargasPendientes).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Pendientes de aprobación' }));
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({ page: 1, page_size: 50 }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    const bono = within(region).getByRole('row', { name: /Bono TP-Link/ });
+    expect(bono).toHaveTextContent('Bono sell in');
+    expect(bono).toHaveTextContent('01/10 al 31/12/2026');
+    expect(bono).toHaveTextContent('Martina');
+    expect(within(region).getByRole('row', { name: /SP Epson noviembre/ })).toHaveTextContent('Campaña sell out');
+    expect(within(region).getByRole('row', { name: /NC Lenovo octubre/ })).toHaveTextContent('Compra sell in');
+    await userEvent.click(within(bono).getByRole('button', { name: 'Aprobar Bono TP-Link' }));
+    expect(onVerLinea).toHaveBeenCalledWith(CARGAS_PENDIENTES[1]);
+  });
+
+  it('without the permission each load offers Ver instead', async () => {
+    const onVerLinea = vi.fn();
+    render(<TacticalsList marcas={MARCAS} onVerLinea={onVerLinea} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+
+    await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    expect(within(sueltas()).queryByRole('button', { name: /^Aprobar/ })).not.toBeInTheDocument();
+    await userEvent.click(within(sueltas()).getByRole('button', { name: 'Ver SP Epson noviembre' }));
+    expect(onVerLinea).toHaveBeenCalledWith(CARGAS_PENDIENTES[0]);
+  });
+
+  it('a pending offset has no record to open: Aprobar asks here, approves it and asks the inbox again (S10)', async () => {
+    const onVerLinea = vi.fn();
+    const onCambio = vi.fn();
+    tacticalsAPI.aprobarOffset.mockResolvedValue({ data: { ...CARGA_OFFSET, estado: 'activa' } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar onVerLinea={onVerLinea} onCambio={onCambio} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const offset = await within(await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' })).findByRole('row', {
+      name: /Offset Epson/,
+    });
+    expect(offset).toHaveTextContent('Offset de ganancia');
+    expect(offset).toHaveTextContent('Desde 01/11/2026');
+
+    await userEvent.click(within(offset).getByRole('button', { name: 'Aprobar Offset Epson' }));
+    const dialogo = screen.getByRole('dialog', { name: '¿Aprobar Offset Epson?' });
+    expect(dialogo).toHaveTextContent('Empieza a aplicar en la rentabilidad desde ahora');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Aprobar offset' }));
+
+    expect(tacticalsAPI.aprobarOffset).toHaveBeenCalledWith(905);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledTimes(2);
+    expect(onCambio).toHaveBeenCalled();
+    expect(onVerLinea).not.toHaveBeenCalled();
+  });
+
+  it('a refused offset approval says why inside the dialog, and Cancelar closes it', async () => {
+    tacticalsAPI.aprobarOffset.mockRejectedValue({ response: { data: { detail: 'El offset 905 ya está aprobado' } } });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Aprobar Offset Epson' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Aprobar offset' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El offset 905 ya está aprobado');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('without the permission a pending offset is listed with nothing to open', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+
+    const offset = await within(await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' })).findByRole('row', {
+      name: /Offset Epson/,
+    });
+    expect(within(offset).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('past one page the rest of the pending loads is on the next pages (S11, verifier A2)', async () => {
+    const muchas = Array.from({ length: 50 }, (_, i) => ({ ...CARGA_OFFSET, id: 1000 - i, nombre: `Offset ${1000 - i}` }));
+    tacticalsAPI.cargasPendientes.mockImplementation(async ({ page }) => ({
+      data: page === 1 ? { items: muchas, total: 51, page: 1, page_size: 50 } : { items: [CARGA_OFFSET], total: 51, page: 2, page_size: 50 },
+    }));
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    expect(await within(region).findByText('mostrando 1-50 de 51 cargas')).toBeInTheDocument();
+
+    await userEvent.click(within(region).getByRole('button', { name: 'Página 2' }));
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenLastCalledWith({ page: 2, page_size: 50 }));
+    expect(await within(sueltas()).findByRole('row', { name: /Offset Epson/ })).toBeInTheDocument();
+    expect(within(sueltas()).getByText('mostrando 51-51 de 51 cargas')).toBeInTheDocument();
+  });
+
+  it('approving the only load of the last page goes back a page: the rest stays reachable (S11, verifier A2)', async () => {
+    const muchas = Array.from({ length: 50 }, (_, i) => ({ ...CARGA_OFFSET, id: 1000 - i, nombre: `Offset ${1000 - i}` }));
+    let aprobado = false;
+    tacticalsAPI.aprobarOffset.mockImplementation(async () => {
+      aprobado = true;
+      return { data: { ...CARGA_OFFSET, estado: 'activa' } };
+    });
+    tacticalsAPI.cargasPendientes.mockImplementation(async ({ page }) => {
+      if (aprobado) return { data: page === 1 ? { items: muchas, total: 50, page: 1, page_size: 50 } : { items: [], total: 50, page, page_size: 50 } };
+      return { data: page === 1 ? { items: muchas, total: 51, page: 1, page_size: 50 } : { items: [CARGA_OFFSET], total: 51, page: 2, page_size: 50 } };
+    });
+    render(<TacticalsList marcas={MARCAS} puedeAprobar />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    await userEvent.click(await within(region).findByRole('button', { name: 'Página 2' }));
+    await userEvent.click(await within(sueltas()).findByRole('button', { name: 'Aprobar Offset Epson' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Aprobar offset' }));
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenLastCalledWith({ page: 1, page_size: 50 }));
+    expect(await within(sueltas()).findByRole('row', { name: /Offset 1000/ })).toBeInTheDocument();
+  });
+
+  it('one page of pending loads shows no pager', async () => {
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: CARGAS_PENDIENTES, total: 4, page: 1, page_size: 50 } });
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    const region = await screen.findByRole('region', { name: 'Cargas sueltas pendientes de aprobación' });
+    await within(region).findByRole('row', { name: /Offset Epson/ });
+    expect(within(region).queryByText(/^mostrando/)).not.toBeInTheDocument();
+  });
+
+  it('asks only the kind of the Tipo filter, again on a reload, and shows nothing when none waits', async () => {
+    const { rerender } = render(<TacticalsList marcas={MARCAS} tipoInicial="sell_in" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledWith({ tipo: 'sell_in', page: 1, page_size: 50 }));
+
+    tacticalsAPI.cargasPendientes.mockResolvedValue({ data: { items: [] } });
+    rerender(<TacticalsList marcas={MARCAS} tipoInicial="sell_in" version={1} />);
+
+    await waitFor(() => expect(tacticalsAPI.cargasPendientes).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Cargas sueltas pendientes de aprobación' })).not.toBeInTheDocument());
+  });
+
+  it('says when the standalone loads could not be loaded', async () => {
+    tacticalsAPI.cargasPendientes.mockRejectedValue(new Error('500'));
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Pendientes de aprobación' }));
+
+    expect(await screen.findByText('No se pudieron cargar las cargas sueltas pendientes.')).toBeInTheDocument();
+  });
+
+  it('counts what waits for approval apart from the money KPIs, and the count selects the pending filter', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    const kpis = await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
+
+    expect(within(kpis).getByText('Pendientes de cobro').closest('div')).toHaveTextContent(/^Pendientes de cobro12 tacticals/);
+    expect(kpis).toHaveTextContent('Sin los pendientes de aprobación.');
+    await userEvent.click(within(kpis).getByRole('button', { name: '4 pendientes de aprobación' }));
+
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ estado: 'pendientes_aprobacion' }));
+    expect(screen.getByRole('group', { name: 'Estado' }).querySelector('[aria-pressed="true"]')).toHaveTextContent(
+      'Pendientes de aprobación',
+    );
+  });
+
+  it('one pending load reads singular, and a list answer without the count shows none', async () => {
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([PENDIENTE]), kpis: KPIS_COBRANZA, pendientes_aprobacion: 1 } });
+    const { unmount } = render(<TacticalsList marcas={MARCAS} />);
+    expect(await screen.findByRole('button', { name: '1 pendiente de aprobación' })).toBeInTheDocument();
+    unmount();
+
+    tacticalsAPI.listar.mockResolvedValue({ data: { ...pagina([PENDIENTE]), kpis: KPIS_COBRANZA } });
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByRole('region', { name: 'Cobranza de los tacticals' });
+    expect(screen.queryByRole('button', { name: /^\d+ pendientes? de aprobación$/ })).not.toBeInTheDocument();
   });
 });

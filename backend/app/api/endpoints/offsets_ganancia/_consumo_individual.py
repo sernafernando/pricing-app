@@ -210,6 +210,8 @@ def recalcular_consumo_offset_individual(
 
     if not offset:
         raise HTTPException(404, "Offset individual no encontrado")
+    if offset.estado != "activa":  # tacticals approval S10: it applies to nothing, so it consumes nothing
+        raise HTTPException(409, f"El offset {offset_id} está pendiente de aprobación: no tiene consumo que recalcular")
 
     # Verificar que tenga límites
     if not offset.max_unidades and not offset.max_monto_usd:

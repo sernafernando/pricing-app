@@ -6,8 +6,16 @@ const TACTICALS = '/tacticals';
 /**
  * Tacticals (`/api/tacticals`, handoffs/tactical-tarea.md, "Contrato final"): a brand program whose lines live in the
  * sell-in and sell-out engines.
- * - `listar(params)`: takes tipo, marca, moneda (`ARS` | `USD`), estado (`vigentes` | `vencidos` | `anulados`), desde,
+ * - `listar(params)`: takes tipo, marca, moneda (`ARS` | `USD`), estado (`vigentes` | `vencidos` | `anulados` | `pendientes_aprobacion`), desde,
  *   hasta, q, page and page_size, and answers `{ items, total }`, each tactical with its lines and their usage.
+ * - `listar` also answers `pendientes_aprobacion`: how many loads wait for approval (the pending tacticals the other
+ *   filters match plus the standalone pending loads); its `kpis` leave pending tacticals out.
+ * - `aprobarOffset(id)`: `POST /offsets-ganancia/{id}/aprobar` (tacticals approval S10), a legacy profit offset of the
+ *   inbox, which has no record panel to approve it from.
+ * - `cargasPendientes(params)`: `GET /tacticals/cargas-pendientes` (`tipo` optional; `page`, `page_size` up to 200),
+ *   one page of the bonuses, purchases, campaigns and profit offsets loaded on their own that wait for approval:
+ *   `{ items: [{ origen, id, nombre, marca, moneda, fecha_desde, fecha_hasta, usuario_id, usuario_nombre,
+ *   created_at }], total, page, page_size }`, newest first.
  * - `detalle(id)`: `GET /tacticals/{id}`, one tactical with its lines (Renovar prefills Nuevo tactical from it).
  * - `crear(body)`: `POST /tacticals`, a header with its lines at once, all or nothing; a 422 `{error: {message}}`
  *   names the line ("Línea 3: …").
@@ -27,11 +35,15 @@ const TACTICALS = '/tacticals';
  */
 export const tacticalsAPI = {
   listar: (params) => api.get(TACTICALS, { params }),
+  cargasPendientes: (params) => api.get(`${TACTICALS}/cargas-pendientes`, { params }),
+  aprobarOffset: (id) => api.post(`/offsets-ganancia/${id}/aprobar`),
   detalle: (id) => api.get(`${TACTICALS}/${id}`),
   crear: (body) => api.post(TACTICALS, body),
   editar: (id, body) => api.patch(`${TACTICALS}/${id}`, body),
   reemplazar: (id, body) => api.put(`${TACTICALS}/${id}`, body),
   anular: (id, motivo) => api.post(`${TACTICALS}/${id}/anular`, { motivo }),
+  // A pending tactical starts applying with all its lines; needs `tacticals.aprobar` (409 when not pending).
+  aprobar: (id) => api.post(`${TACTICALS}/${id}/aprobar`),
   cobrar: (id, body) => api.put(`${TACTICALS}/${id}/cobranza`, body),
   deshacerCobro: (id) => api.delete(`${TACTICALS}/${id}/cobranza`),
   buscarProductos: (q) => api.get('/buscar-productos-catalogo', { params: { q } }).then((r) => r.data ?? []),

@@ -93,6 +93,19 @@ class TestFetchOffsetsLimitePorGrupo:
         assert result[g1.id].id == o1.id
         assert result[g1.id].max_unidades == 50
 
+    def test_a_pending_offset_is_not_the_groups_limit(self, db, offset_grupo_factory, offset_ganancia_factory):
+        """Tacticals approval S10: a cap waiting for approval applies to nothing, so the approved one is the group's."""
+        g1 = offset_grupo_factory()
+        offset_ganancia_factory(grupo_id=g1.id, max_unidades=10, estado="pendiente")  # lower id
+        aprobado = offset_ganancia_factory(grupo_id=g1.id, max_unidades=50)
+        g2 = offset_grupo_factory()
+        offset_ganancia_factory(grupo_id=g2.id, max_unidades=10, estado="pendiente")
+
+        result = fetch_offsets_limite_por_grupo(db, [g1.id, g2.id])
+
+        assert result[g1.id].id == aprobado.id
+        assert g2.id not in result
+
     def test_tie_break_selects_lowest_id_row(self, db, offset_grupo_factory, offset_ganancia_factory, query_counter):
         """Spec Requirement 3: two OffsetGanancia rows in the same grupo — the
         lowest-id row wins, regardless of DB row-return order.

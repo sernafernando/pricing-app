@@ -20,7 +20,13 @@ vi.mock('../contexts/PermisosContext', () => ({
 
 /** The list Nuevo tactical goes back to, with the query it lands on (the Tacticals tab). */
 function Listado() {
-  return <p>{`Listado de sell in${useLocation().search}`}</p>;
+  const { search, state } = useLocation();
+  return (
+    <>
+      <p>{`Listado de sell in${search}`}</p>
+      {state?.aviso && <p>{state.aviso}</p>}
+    </>
+  );
 }
 
 function renderAt(url) {
@@ -589,5 +595,72 @@ describe('Editar (SISO S8)', () => {
     renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el tactical a editar.');
+  });
+});
+
+describe('approval (handoffs/tacticals-aprobacion-plan.md S8)', () => {
+  const guardar = () => screen.getAllByRole('button', { name: 'Guardar cambios' })[0];
+  const conDetalle = (detalle) =>
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? Promise.resolve({ data: detalle }) : Promise.resolve({ data: {} }),
+    );
+
+  it('a new tactical says it waits for approval before applying, and the notice after creating says so', async () => {
+    const user = userEvent.setup();
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out');
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Al crearlo queda pendiente de aprobación: no aplica a ninguna venta hasta que lo aprueben.',
+    );
+    await fillHeader(user);
+    await pickProducts(user, 1, 'aio hp g2', ['AIO HP G2 R5 16G 512 W11H']);
+    await user.type(within(linea(1)).getByLabelText('Monto de la línea 1'), '220');
+    await user.click(crear());
+
+    expect(await screen.findByText(/Queda pendiente de aprobación\.$/)).toBeInTheDocument();
+  });
+
+  it('editing an approved tactical warns that changing money sends it back to pending', async () => {
+    conDetalle({ ...TACTICAL_BPS, estado: 'activo' });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Está aprobado: si cambiás montos, topes, fechas o alcance vuelve a quedar pendiente de aprobación y deja de aplicar hasta que lo aprueben de nuevo. El nombre y la nota no.',
+    );
+  });
+
+  it('editing a pending tactical says it is still pending', async () => {
+    conDetalle({ ...TACTICAL_BPS, estado: 'pendiente' });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    expect(screen.getByRole('note')).toHaveTextContent('Sigue pendiente de aprobación: no aplica hasta que lo aprueben.');
+  });
+
+  it('after a save that sent it back, the notice says it is pending again', async () => {
+    const user = userEvent.setup();
+    conDetalle({ ...TACTICAL_BPS, estado: 'activo' });
+    api.put.mockResolvedValue({ data: { ...TACTICAL_BPS, estado: 'pendiente' } });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    await user.click(guardar());
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(await screen.findByText(/Volvió a quedar pendiente de aprobación\.$/)).toBeInTheDocument();
+  });
+
+  it('after a save that kept it approved, the notice is the previous one', async () => {
+    const user = userEvent.setup();
+    conDetalle({ ...TACTICAL_BPS, estado: 'activo' });
+    api.put.mockResolvedValue({ data: { ...TACTICAL_BPS, estado: 'activo' } });
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&editar=1');
+    await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27');
+
+    await user.click(guardar());
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(await screen.findByText('Tactical actualizado: Tacticals BPS Noviembre Q1FY27 · 2 líneas.')).toBeInTheDocument();
   });
 });

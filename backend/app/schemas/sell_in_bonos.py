@@ -52,7 +52,7 @@ from pydantic import (
 from app.schemas.sell_out import RepartoCriterio  # the same split criteria as sell out's
 
 Moneda = Literal["ARS", "USD"]
-Estado = Literal["activa", "anulada"]
+Estado = Literal["activa", "anulada", "pendiente"]  # `pendiente`: waits for approval (tacticals approval)
 Alcance = Literal["marca", "categoria", "modelos", "factura"]
 TipoBono = Literal["por_unidad", "porcentaje", "monto_total"]
 BaseBono = Literal["factura", "costo_venta"]
@@ -180,6 +180,7 @@ class SellInBonoOut(BaseModel):
     descripcion: Optional[str]
     estado: Estado
     usuario_id: int
+    tactical_id: Optional[int] = None  # a tactical's line: approved with its tactical, never alone
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     # What the worker generated from it so far: active purchases, their units and amount (in `moneda`;

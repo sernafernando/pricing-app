@@ -721,3 +721,18 @@ class TestNoData:
         # No cost bonus active: the T25 lookup costs no statement. The sell-in cost modes add one fixed read, and
         # the products' costo SI one more (`lote.actuales`, sell-in-costo-si T3 PR 5).
         assert len(statements) <= 8
+
+
+class TestPendienteDeAprobacion:
+    """Tacticals approval S2/S6: a load waiting for approval (`estado = 'pendiente'`) applies to no markup."""
+
+    def test_a_pending_cost_bonus_is_no_sell_in(self, engine):
+        _bono_costo(engine, estado="pendiente")
+
+        assert _payload(engine) is None  # nothing reaches the product (active, it is its sell in: `TestSellIn`)
+
+    def test_a_pending_campaign_is_no_sell_out(self, engine):
+        gid = so.grupo(engine, [{"item_id": ROUTER}])
+        so.campana(engine, [gid], monto_unit="500.00", estado="pendiente")
+
+        assert _payload(engine) is None  # active, it is its sell out (`TestSellOut`)

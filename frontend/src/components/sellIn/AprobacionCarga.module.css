@@ -1,0 +1,33 @@
+.caja {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+  font-size: var(--font-sm);
+}
+
+.caja p {
+  margin: 0;
+}
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.primary {
+  composes: btn-tesla primary sm from '../../styles/buttons-tesla.css';
+}
+
+.ghost {
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
+}
+
+.error {
+  color: var(--tone-danger-fg);
+}

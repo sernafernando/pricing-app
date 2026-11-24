@@ -58,7 +58,7 @@ from app.models.sell_in import (
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 from app.services.combos.componentes import componentes_de
 from app.services.combos.pcs import sin_pcs
-from app.services.sell_in import bono_queue
+from app.services.sell_in import aprobacion, bono_queue
 from app.services.sell_in.bonos_alcance import alcanza_marcas, del_alcance
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import criterio as criterio_reparto
@@ -477,11 +477,17 @@ def _valor_nuevo(campos: Campos, item_id: int) -> dict:
 
 
 def crear_bono(
-    db: Session, data: SellInBonoIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+    db: Session,
+    data: SellInBonoIn,
+    usuario_id: int,
+    *,
+    offset_origen_id: Optional[int] = None,
+    estado: str = "activa",
 ) -> SellInBonoMarca:
     """`offset_origen_id`: the legacy offset a migration loads this bonus from (the offsets script only; the API
-    never takes it), set before the first flush so the audit row carries it."""
-    bono = crear_bono_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
+    never takes it), set before the first flush so the audit row carries it. `estado`: `pendiente` for a load that
+    waits for approval (the API, tacticals approval S6)."""
+    bono = crear_bono_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id, estado=estado)
     db.commit()
     db.refresh(bono)
     return bono
@@ -494,17 +500,20 @@ def crear_bono_sin_commit(
     *,
     offset_origen_id: Optional[int] = None,
     tactical: Optional[tuple[int, int]] = None,
+    estado: str = "activa",
     heredado: bool = False,
 ) -> SellInBonoMarca:
     """The create step without committing: validation, the row, its models and one audit row. Shared by the single
     create and a tactical's lines (`app.services.tacticals`, several in one transaction). `tactical`: the
-    `(tactical_id, tactical_linea)` it is a line of, set before the first flush. `heredado`: a tactical line created
-    again by a full edit that already was a lump sum (`validar`'s `nuevo`)."""
+    `(tactical_id, tactical_linea)` it is a line of, set before the first flush. `estado`: `pendiente` for a load
+    waiting for approval (`app.services.sell_in.aprobacion`): its INSERT queues no reconcile (`bono_queue` fires on
+    an active bonus only) and every money reader skips it. `heredado`: a tactical line created again by a full edit
+    that already was a lump sum (`validar`'s `nuevo`)."""
     campos = validar(db, data, de_tactical=tactical is not None, nuevo=not heredado)
     tactical_id, tactical_linea = tactical or (None, None)
     bono = SellInBonoMarca(
         usuario_id=usuario_id,
-        estado="activa",
+        estado=estado,
         offset_origen_id=offset_origen_id,
         tactical_id=tactical_id,
         tactical_linea=tactical_linea,
@@ -532,7 +541,7 @@ def _bloquear(db: Session, bono_id: int) -> Optional[SellInBonoMarca]:
 
 def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) -> Optional[SellInBonoMarca]:
     """Full replace of an active bonus. None when it does not exist; `SellInBonoYaAnulado` when voided."""
-    bono = editar_bono_sin_commit(db, bono_id, data, usuario_id)
+    bono = editar_bono_sin_commit(db, bono_id, data, usuario_id, a_pendiente_si_cambia=True)
     if bono is None:
         return None
     db.commit()
@@ -540,9 +549,14 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
     return bono
 
 
-def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) -> Optional[SellInBonoMarca]:
+def editar_bono_sin_commit(
+    db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int, *, a_pendiente_si_cambia: bool = False
+) -> Optional[SellInBonoMarca]:
     """THE edit step, without committing: lock, validation, full replace and one audit row. Shared by the single edit
-    and a tactical's edit (`app.services.tacticals.editar`, several in one transaction)."""
+    and a tactical's edit (`app.services.tacticals.editar`, several in one transaction). `a_pendiente_si_cambia`
+    (the single edit; a tactical's edit decides for the whole tactical): an approved bonus whose money changed goes
+    back to pending (tacticals approval S4, S5; a tactical's line takes its whole tactical back); a description edit
+    keeps it approved."""
     bono = _bloquear(db, bono_id)
     if bono is None:
         return None
@@ -559,7 +573,10 @@ def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuari
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")
     antes = _valores(db, bono)
     _asignar(db, bono, data, campos)
-    _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, _valores(db, bono))
+    despues = _valores(db, bono)
+    _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, despues)
+    if a_pendiente_si_cambia:
+        aprobacion.a_pendiente_si_cambia(db, bono, antes, despues, ("bono_id", "descripcion"), usuario_id)
     return bono
 
 
@@ -816,6 +833,7 @@ _COLUMNAS = (
     "acumulable",
     "offset_origen_id",
     "usuario_id",
+    "tactical_id",  # a tactical's line is approved with its tactical (tacticals approval S6)
     "created_at",
     "updated_at",
 )

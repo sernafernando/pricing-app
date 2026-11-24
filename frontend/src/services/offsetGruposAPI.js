@@ -4,7 +4,7 @@ import api from './api';
  * The product groups sell-out campaigns reach (`app/api/endpoints/offsets_ganancia/_grupos.py`, `_filtros.py`).
  * A group is an OR of filter rows; a row is an AND of the fields it sets (marca, categoria, subcategoria_id,
  * item_id). Every write needs `config.editar_constantes`, `alcance` that or `grupos.ver`; changing filters re-queues
- * the campaigns.
+ * the campaigns and sends the group's approved campaigns and offsets back to pending.
  */
 export const offsetGruposAPI = {
   listar: () => api.get('/offset-grupos'),
@@ -20,6 +20,8 @@ export const offsetGruposAPI = {
   eliminarVarios: (ids) => api.post('/offset-grupos/eliminar', { ids }),
   // Products reached now and with `{ agregar: filtro }` and/or `{ quitar_filtro_id }`, without saving: `{ antes, despues }`.
   alcancePrevio: (id, cambio) => api.post(`/offset-grupos/${id}/alcance-previo`, cambio),
+  // The approved campaigns and offsets a filter change sends back to pending (tacticals approval S14): `{ campanas, offsets }`.
+  aprobadasAfectadas: (id) => api.get(`/offset-grupos/${id}/aprobadas-afectadas`),
   agregarFiltro: (id, filtro) => api.post(`/offset-grupos/${id}/filtros`, filtro),
   eliminarFiltro: (id, filtroId) => api.delete(`/offset-grupos/${id}/filtros/${filtroId}`),
 };

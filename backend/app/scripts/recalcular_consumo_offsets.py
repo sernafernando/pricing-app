@@ -31,7 +31,7 @@ from decimal import Decimal
 
 from app.services import offset_costo_desconocido
 from app.core.database import SessionLocal
-from app.models.offset_ganancia import OffsetGanancia
+from app.models.offset_ganancia import OFFSET_APLICA, OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
@@ -96,7 +96,7 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
     eliminados = db.query(OffsetGrupoConsumo).filter(OffsetGrupoConsumo.grupo_id == grupo_id).delete()
 
     # Obtener offsets del grupo
-    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).all()
+    offsets_grupo = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id, OFFSET_APLICA).all()
 
     if not offsets_grupo:
         if verbose:
@@ -222,8 +222,13 @@ def recalcular_grupo(db, grupo_id: int, cotizacion: float, verbose: bool = True)
 
 def recalcular_offset_individual(db, offset: OffsetGanancia, cotizacion: float, verbose: bool = True):
     """
-    Recalcula el consumo de un offset individual (sin grupo).
+    Recalcula el consumo de un offset individual (sin grupo). Uno pendiente de aprobación (tacticals approval S10)
+    no aplica a nada: no se le registra consumo.
     """
+    if offset.estado != "activa":
+        if verbose:
+            print(f"\n  ⏸ Offset {offset.id}: pendiente de aprobación, sin consumo")
+        return {"offset_id": offset.id, "consumos_creados": 0, "mensaje": "Pendiente de aprobación"}
     if verbose:
         desc = offset.descripcion or f"Offset {offset.id}"
         nivel = (
@@ -444,7 +449,10 @@ def main():
                 grupos_con_limites = (
                     db.query(OffsetGrupo)
                     .join(OffsetGanancia, OffsetGrupo.id == OffsetGanancia.grupo_id)
-                    .filter(or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)))
+                    .filter(
+                        OFFSET_APLICA,
+                        or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)),
+                    )
                     .distinct()
                     .all()
                 )
@@ -466,7 +474,7 @@ def main():
             if args.offset_id:
                 offset = (
                     db.query(OffsetGanancia)
-                    .filter(OffsetGanancia.id == args.offset_id, OffsetGanancia.grupo_id.is_(None))
+                    .filter(OffsetGanancia.id == args.offset_id, OffsetGanancia.grupo_id.is_(None), OFFSET_APLICA)
                     .first()
                 )
                 if offset:
@@ -480,6 +488,7 @@ def main():
                     db.query(OffsetGanancia)
                     .filter(
                         OffsetGanancia.grupo_id.is_(None),
+                        OFFSET_APLICA,
                         or_(OffsetGanancia.max_unidades.isnot(None), OffsetGanancia.max_monto_usd.isnot(None)),
                     )
                     .all()

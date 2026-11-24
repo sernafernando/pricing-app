@@ -135,3 +135,58 @@ export const KPIS_COBRANZA = {
     ],
   },
 };
+
+/**
+ * `GET /api/tacticals/cargas-pendientes` (tacticals approval S11, `CargaPendienteOut`): the bonuses, purchases and
+ * campaigns loaded on their own that wait for approval, newest first.
+ */
+export const CARGA_CAMPANA = {
+  origen: 'sell_out_campana',
+  id: 412,
+  nombre: 'SP Epson noviembre',
+  marca: null,
+  moneda: 'USD',
+  fecha_desde: '2026-11-01',
+  fecha_hasta: '2026-11-30',
+  usuario_id: 3,
+  usuario_nombre: 'Martina',
+  created_at: '2026-11-11T14:05:00Z',
+};
+export const CARGA_BONO = {
+  origen: 'sell_in_bono',
+  id: 31,
+  nombre: 'Bono TP-Link',
+  marca: 'TP-Link',
+  moneda: 'ARS',
+  fecha_desde: '2026-10-01',
+  fecha_hasta: '2026-12-31',
+  usuario_id: 3,
+  usuario_nombre: 'Martina',
+  created_at: '2026-11-10T09:30:00Z',
+};
+export const CARGA_COMPRA = {
+  origen: 'sell_in_compra',
+  id: 87,
+  nombre: 'NC Lenovo octubre',
+  marca: null,
+  moneda: 'ARS',
+  fecha_desde: '2026-10-28',
+  fecha_hasta: '2026-10-28',
+  usuario_id: null,
+  usuario_nombre: null,
+  created_at: '2026-11-09T18:00:00Z',
+};
+/** A legacy profit offset loaded from Offsets (tacticals approval S10): approved from the inbox itself. */
+export const CARGA_OFFSET = {
+  origen: 'offset_ganancia',
+  id: 905,
+  nombre: 'Offset Epson',
+  marca: 'Epson',
+  moneda: 'ARS',
+  fecha_desde: '2026-11-01',
+  fecha_hasta: null,
+  usuario_id: 3,
+  usuario_nombre: 'Martina',
+  created_at: '2026-11-08T11:00:00Z',
+};
+export const CARGAS_PENDIENTES = [CARGA_CAMPANA, CARGA_BONO, CARGA_COMPRA, CARGA_OFFSET];

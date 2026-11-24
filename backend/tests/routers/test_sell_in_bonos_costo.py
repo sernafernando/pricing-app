@@ -16,6 +16,10 @@ import pytest
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.sell_in import SellInBonoConsumo, SellInBonoMarca, SellInCompra, SellInCompraItem
+from tests.services._aprobacion import cargas_aprobadas  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: a load is approved right away (`_aprobacion.cargas_aprobadas`).
+pytestmark = pytest.mark.usefixtures("cargas_aprobadas")
 
 BASE = "/api/sell-in/bonos"
 
@@ -258,6 +262,7 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "descripcion": "Acuerdo Q4",
         "estado": "activa",
         "usuario_id": admin_user.id,
+        "tactical_id": None,  # added by tacticals approval (S6): a standalone bonus has no tactical
         "compras_activas": 1,
         "unidades": 4,
         "monto_generado": "10.00",

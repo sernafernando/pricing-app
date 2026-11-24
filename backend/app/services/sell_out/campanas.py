@@ -43,6 +43,7 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutPrograma
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
+from app.services.sell_in import aprobacion
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import alcance, asignacion, programas, queue, reparto
 from app.services.sell_out import criterio as criterio_service
@@ -314,6 +315,10 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -
     }
 
 
+# The audit fields an edit may change without touching money (tacticals approval S5).
+SIN_DINERO = ("campana_id", "nombre", "descripcion", "tc_definido_en")
+
+
 def grupo_ids_de(db: Session, campana_id: int) -> list[int]:
     rows = db.query(SellOutCampanaGrupo.grupo_id).filter(SellOutCampanaGrupo.campana_id == campana_id)
     return [gid for (gid,) in rows.order_by(SellOutCampanaGrupo.id)]
@@ -551,11 +556,17 @@ def _importe(valor: Decimal) -> str:
 
 @_deadlock_es_ocupada
 def crear_campana(
-    db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+    db: Session,
+    data: SellOutCampanaIn,
+    usuario_id: int,
+    *,
+    offset_origen_id: Optional[int] = None,
+    estado: str = "activa",
 ) -> SellOutCampana:
     """Create a campaign and commit (`crear_campana_sin_commit`). A deadlock with another writer (a renewal locks
-    the original's program row) is the busy refusal `SellOutRecalculando`, nothing stored."""
-    campana = crear_campana_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
+    the original's program row) is the busy refusal `SellOutRecalculando`, nothing stored. `estado`: `pendiente`
+    for a load that waits for approval (the API, tacticals approval S6)."""
+    campana = crear_campana_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id, estado=estado)
     db.commit()
     db.refresh(campana)
     return campana
@@ -604,6 +615,7 @@ def crear_campana_sin_commit(
     *,
     offset_origen_id: Optional[int] = None,
     tactical: Optional[tuple[int, int]] = None,
+    estado: str = "activa",
 ) -> SellOutCampana:
     """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
 
@@ -613,6 +625,8 @@ def crear_campana_sin_commit(
     `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
     without one. `data.renovada_de_id` (a renewal) is checked and locked by `_validar_renovacion`; it is stored and
     audited the same way. `tactical`: the `(tactical_id, tactical_linea)` it is a line of (`app.services.tacticals`).
+    `estado`: `pendiente` waits for approval and applies to nothing, so it is not queued
+    (`app.services.sell_in.aprobacion` queues it on approval).
     """
     # A tactical's entry is built by `app.services.tacticals` around the hidden group it just created, never by a
     # request: only then may it name a hidden group.
@@ -628,6 +642,7 @@ def crear_campana_sin_commit(
         renovada_de_id=data.renovada_de_id,
         tactical_id=tactical[0] if tactical else None,
         tactical_linea=tactical[1] if tactical else None,
+        estado=estado,
     )
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
@@ -639,7 +654,8 @@ def crear_campana_sin_commit(
     if data.renovada_de_id is not None:
         valores["renovada_de_id"] = data.renovada_de_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
-    _encolar(db, [campana.id])
+    if estado == "activa":
+        _encolar(db, [campana.id])
     return campana
 
 
@@ -682,6 +698,7 @@ def editar_campana_sin_commit(
     es_masivo: bool = False,
     *,
     compartian: Optional[list[int]] = None,
+    a_pendiente_si_cambia: bool = False,
 ) -> Optional[SellOutCampana]:
     """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
     groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
@@ -690,7 +707,11 @@ def editar_campana_sin_commit(
 
     `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
     links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
-    before the edit unlinks them."""
+    before the edit unlinks them.
+
+    `a_pendiente_si_cambia` (the single and the bulk edit; never a tactical's own edit, which decides for the whole
+    tactical): an approved campaign whose money changed goes back to pending (tacticals approval S4, S5; a tactical's
+    line takes its whole tactical back), its name, description or payment rate alone keep it approved."""
     campana = bloquear(db, campana_id)
     if campana is None:
         return None
@@ -698,11 +719,14 @@ def editar_campana_sin_commit(
     data = _con_grupos_ocultos(data, ocultos)
     grupo_ids = validar(db, data, campana, ocultos=ocultos)
     antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
+    criterio_antes = campana.reparto_criterio  # not in the audit values, but a change of it moves money (S5)
     if compartian is None:
         compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
+    if a_pendiente_si_cambia:
+        _a_pendiente_si_reparte(db, campana, antes, despues, criterio_antes, usuario_id)
     _encolar(db, [campana_id, *compartian])
     return campana
 
@@ -712,7 +736,7 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided;
     `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or loses a deadlock with another writer
     (`_deadlock_es_ocupada`)."""
-    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id, a_pendiente_si_cambia=True)
     if campana is None:
         return None
     db.commit()
@@ -893,6 +917,21 @@ SOLO_TODAS_LAS_MARCAS = (
 )
 
 
+def _a_pendiente_si_reparte(
+    db: Session, campana: SellOutCampana, antes: dict, despues: dict, criterio_antes: Optional[str], usuario_id: int
+) -> None:
+    """A split is money: an approved campaign whose money, shares or criterion changed goes back to pending (S4, S5).
+    Used by the edit and the split, so a criterion change sends it back through either."""
+    aprobacion.a_pendiente_si_cambia(
+        db,
+        campana,
+        {**antes, "reparto_criterio": criterio_antes},
+        {**despues, "reparto_criterio": campana.reparto_criterio},
+        SIN_DINERO,
+        usuario_id,
+    )
+
+
 @_deadlock_es_ocupada
 def repartir(
     db: Session,
@@ -921,6 +960,7 @@ def repartir(
         return None
     if campana.tipo != "monto_total":
         raise SellOutError("Solo las campañas por monto total se reparten por producto")
+    criterio_antes = campana.reparto_criterio  # not in the audit values, but a change of it moves money (S5)
     if criterio is not None:
         if repartos:
             raise SellOutError("Un reparto por criterio no lleva montos por producto")
@@ -932,6 +972,7 @@ def repartir(
         despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
         _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
         _encolar(db, [campana_id])
+        _a_pendiente_si_reparte(db, campana, antes, despues, criterio_antes, usuario_id)
         db.commit()
         db.refresh(campana)
         return campana
@@ -957,6 +998,7 @@ def repartir(
     despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
     _encolar(db, [campana_id])
+    _a_pendiente_si_reparte(db, campana, antes, despues, criterio_antes, usuario_id)
     db.commit()
     db.refresh(campana)
     return campana

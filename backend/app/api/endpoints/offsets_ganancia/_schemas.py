@@ -56,6 +56,13 @@ class AlcancePrevio(BaseModel):
     despues: int
 
 
+class AprobadasAfectadas(BaseModel):
+    """The approved campaigns and offsets a filter edit of the group sends back to pending (tacticals approval S14)."""
+
+    campanas: int
+    offsets: int
+
+
 class GruposEliminarIn(BaseModel):
     """The groups to delete at once (the Grupos tab's "Borrar seleccionados")."""
 
@@ -166,6 +173,8 @@ class OffsetGananciaResponse(BaseModel):
     aplica_tienda_nube: bool = True
     # Sell-out campaign this offset was migrated to (T15), if any
     campana_id: Optional[int] = None
+    # Tacticals approval S10: 'pendiente' until approved, 'activa' once it applies
+    estado: str = "activa"
 
     model_config = ConfigDict(from_attributes=True)
 

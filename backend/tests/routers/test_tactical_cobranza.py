@@ -7,6 +7,10 @@ import pytest
 
 from app.models.producto import ProductoERP
 from tests.routers.test_tacticals import BASE, _body, _message
+from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
+
+# Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
+pytestmark = pytest.mark.usefixtures("aprobar_siempre")
 
 
 @pytest.fixture()

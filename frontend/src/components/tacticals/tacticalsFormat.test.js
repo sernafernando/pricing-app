@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   alcanceDe,
+  aprobadoDe,
   avanceDeLinea,
   avanceDeTactical,
   FILTROS_VACIOS,
@@ -48,6 +49,13 @@ describe('vigenciaDe', () => {
 });
 
 describe('estadoDe', () => {
+  it('a pending tactical reads Pendiente de aprobación, before its dates (tacticals approval S8)', () => {
+    expect(estadoDe({ estado: 'pendiente', fecha_hasta: '2026-11-11' }, HOY)).toEqual({
+      texto: 'Pendiente de aprobación',
+      tono: 'warning',
+    });
+  });
+
   it('is Anulado, Vencido, Vence en N días (7 or fewer) or Vigente', () => {
     expect(estadoDe({ estado: 'anulado', fecha_hasta: '2026-11-30' }, HOY)).toEqual({ texto: 'Anulado', tono: 'neutral' });
     expect(estadoDe({ estado: 'activo', fecha_hasta: '2026-11-11' }, HOY)).toEqual({ texto: 'Vencido', tono: 'neutral' });
@@ -230,5 +238,18 @@ describe('an invoice line waiting for its invoice (sell in factura pendiente S4)
       detalle: 'Esperando factura: se aplica cuando Compras vincule la factura del proveedor',
     });
     expect(alcanceDe({ ...linea, esperando_factura: false }).detalle).toBeNull();
+  });
+});
+
+describe('aprobadoDe (tacticals approval S8)', () => {
+  it('names who approved and the local day', () => {
+    expect(aprobadoDe({ aprobado_por_nombre: 'Alejandro', aprobado_at: '2026-11-10T15:00:00Z' })).toBe(
+      'Aprobado por Alejandro el 10/11/2026',
+    );
+  });
+
+  it('is null for a tactical approved before approval existed, or not approved', () => {
+    expect(aprobadoDe({ aprobado_por_nombre: null, aprobado_at: null })).toBeNull();
+    expect(aprobadoDe({})).toBeNull();
   });
 });

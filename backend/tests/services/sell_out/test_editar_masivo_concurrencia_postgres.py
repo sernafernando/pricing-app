@@ -24,9 +24,10 @@ from app.services.sell_out import asignacion, edicion_masiva, queue
 from app.services.sell_out import campanas as service
 from app.workers.context import WorkerContext
 from app.workers.handlers.sell_out_drain import drain as handler
+from tests.services._aprobacion import ediciones_aprobadas  # noqa: F401 - the fixture
 from tests.services.sell_out import _world as w
 
-pytestmark = pytest.mark.postgres
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("ediciones_aprobadas")]
 
 U = 7
 ROUTER, SWITCH = 2964, 2270

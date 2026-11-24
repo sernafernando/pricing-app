@@ -10,7 +10,7 @@ import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA, CONSUMOS_USD } from './sel
 import SellOutCampanaPanel from './SellOutCampanaPanel';
 
 vi.mock('../../services/sellOutAPI', () => ({
-  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), definirTipoCambio: vi.fn(), consumos: vi.fn() },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), aprobar: vi.fn(), definirTipoCambio: vi.fn(), consumos: vi.fn() },
 }));
 
 const GRUPOS = [
@@ -241,5 +241,38 @@ describe('SellOutCampanaPanel — void and exchange rate (T8c)', () => {
     render(<SellOutCampanaPanel campanaId={null} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
     expect(screen.queryByRole('region', { name: 'Ventas acreditadas' })).not.toBeInTheDocument();
     expect(sellOutAPI.consumos).not.toHaveBeenCalled();
+  });
+});
+
+describe('SellOutCampanaPanel — approval (tacticals approval S6, S8)', () => {
+  it('an active campaign still reads Activa, with nothing to approve', async () => {
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
+    render(<SellOutCampanaPanel campanaId={55} puedeAprobar onSaved={() => {}} onClose={() => {}} />);
+    expect(await screen.findByText('Activa')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
+  });
+
+  it('a pending campaign loaded on its own is approved after a confirmation', async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'pendiente', tactical_id: null } });
+    sellOutAPI.aprobar.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'activa' } });
+    render(<SellOutCampanaPanel campanaId={55} puedeAprobar onSaved={onSaved} onClose={() => {}} />);
+
+    expect(await screen.findByText('Pendiente de aprobación')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Aprobar' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar aprobación' }));
+
+    expect(sellOutAPI.aprobar).toHaveBeenCalledWith(55);
+    expect(await screen.findByText('Activa')).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('without the permission a pending campaign offers no Aprobar', async () => {
+    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'pendiente', tactical_id: null } });
+    render(<SellOutCampanaPanel campanaId={55} onSaved={() => {}} onClose={() => {}} />);
+
+    expect(await screen.findByRole('note')).toHaveTextContent('Pendiente de aprobación: no aplica hasta que lo aprueben.');
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
   });
 });

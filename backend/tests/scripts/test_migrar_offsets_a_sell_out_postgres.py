@@ -237,9 +237,10 @@ def test_an_active_per_unit_usd_offset_becomes_one_campaign_through_the_service(
     [(grupo_id, nombre)] = _grupos_de(engine, c["id"])
     assert nombre == f"Offset #{offset_id}: SP Epson"
     assert _filtros(engine, grupo_id) == [(None, None, None, 2964)]
-    with engine.connect() as conn:  # audited and queued like any campaign the service loads
+    with engine.connect() as conn:  # audited like any campaign the service loads; pending, so not queued (S10)
         audit = conn.execute(text("SELECT valores_nuevos FROM auditoria")).scalar_one()
-        assert conn.execute(text("SELECT campana_id FROM sell_out_dirty")).scalar_one() == c["id"]
+        assert conn.execute(text("SELECT COUNT(*) FROM sell_out_dirty")).scalar_one() == 0
+    assert c["estado"] == "pendiente"
     assert (audit["campana_id"], audit["offset_origen_id"]) == (c["id"], offset_id)
 
     assert filas[offset_id] == {
@@ -1055,7 +1056,7 @@ def test_a_refused_group_campaign_leaves_no_new_group_behind(engine, correr, mon
     antes = {table: _count(engine, table) for table in _ESCRITAS}
     vistos = []
 
-    def rechazar(db, data, usuario_id, offset_origen_id):
+    def rechazar(db, data, usuario_id, offset_origen_id, estado):
         vistos.append(list(data.grupo_ids))  # the new group exists in the transaction at this point
         raise script.campanas.SellOutError("rechazada")
 
@@ -1290,6 +1291,17 @@ def test_a_cost_percentage_already_loaded_by_hand_as_a_bono_is_reported_with_it(
     assert (pendiente["motivo"], pendiente["avisos"], pendiente["porcentaje"]) == (fila["motivo"], None, 4.0)
 
 
+def test_a_bono_loaded_by_hand_and_still_pending_approval_counts_as_loaded(engine, correr) -> None:
+    # Tacticals approval S10: a pending bonus is a load waiting for approval, not a missing one; migrating the offset
+    # would leave two bonuses for the same scope once both are approved.
+    bono = _bono(engine, estado="pendiente")
+
+    _, code, fila, pendiente = _porcentaje(engine, correr)
+
+    assert code == 0
+    assert fila["motivo"] == pendiente["motivo"] == f"ya cargado a mano como bono #{bono}"
+
+
 def test_a_bono_with_another_percentage_is_reported_with_a_warning(engine, correr) -> None:
     bono = _bono(engine, porcentaje="3.5")
 
@@ -1441,7 +1453,7 @@ def test_a_brand_cost_percentage_becomes_one_cost_bonus_with_its_stored_percenta
     assert (b["fecha_desde"], b["fecha_hasta"], b["estado"], b["usuario_id"]) == (
         date(2026, 9, 1),
         date(2026, 12, 15),
-        "activa",
+        "pendiente",  # waits for approval (tacticals approval S10)
         7,
     )
     assert (b["tope_unidades"], b["tope_monto"], b["descripcion"]) == (
@@ -1954,9 +1966,10 @@ def test_a_fixed_amount_offset_becomes_one_monto_total_campaign_with_no_shares(e
     [(grupo_id, _)] = _grupos_de(engine, c["id"])
     assert _filtros(engine, grupo_id) == [("EPSON", None, None, None)]
     assert _count(engine, "sell_out_campana_items") == 0  # everything "Sin asignar" for the PM or an admin
-    with engine.connect() as conn:  # audited and queued like any campaign the service loads
+    with engine.connect() as conn:  # audited like any campaign the service loads; pending, so not queued (S10)
         audit = conn.execute(text("SELECT valores_nuevos FROM auditoria")).scalar_one()
-        assert conn.execute(text("SELECT campana_id FROM sell_out_dirty")).scalar_one() == c["id"]
+        assert conn.execute(text("SELECT COUNT(*) FROM sell_out_dirty")).scalar_one() == 0
+    assert c["estado"] == "pendiente"
     assert (audit["campana_id"], audit["offset_origen_id"], audit["monto_total"]) == (c["id"], offset_id, "856297.50")
     assert filas[offset_id] == {
         "offset_id": str(offset_id),
@@ -2222,3 +2235,127 @@ def test_a_group_of_fixed_amounts_that_cannot_be_modeled_goes_to_review_whole(en
     assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
     assert {i: p["motivo"] for i, p in _pendientes(engine).items()} == dict.fromkeys(ids, motivo)
     assert (summary["no_migrados"], summary["pendientes"]) == (2, 2)
+
+
+# Tacticals approval S10: "migrar_offsets_a_sell_out.py create 'pendiente' (the script: everything it creates from
+# now on; nothing stored changes)". A migrated row waits for approval like any other load: it applies to nothing.
+
+
+def _campana_de_grupo(engine: Engine) -> None:
+    _grupo_tplink(engine)
+
+
+@pytest.mark.parametrize(
+    "cargar",
+    [
+        pytest.param(lambda engine: _offset(engine, item_id=2964), id="one-offset"),
+        pytest.param(_campana_de_grupo, id="group"),
+        pytest.param(lambda engine: _fijo(engine), id="fixed-amount"),
+    ],
+)
+def test_every_campaign_the_script_creates_waits_for_approval_and_is_not_queued(engine, correr, cargar) -> None:
+    cargar(engine)
+
+    code, summary, _ = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert c["estado"] == "pendiente"
+    assert summary["campana_ids"] == [c["id"]]
+    assert _count(engine, "sell_out_dirty") == 0  # nothing to rebuild: a pending campaign applies to nothing
+
+
+@pytest.mark.parametrize(
+    "cargar",
+    [
+        pytest.param(lambda engine: _pct(engine), id="one-offset"),
+        pytest.param(_grupo_amplify, id="group"),
+    ],
+)
+def test_every_cost_bonus_the_script_creates_waits_for_approval(engine, correr, cargar) -> None:
+    cargar(engine)
+
+    code, summary, _ = correr("--apply")
+
+    assert code == 0
+    [b] = _bonos_costo(engine)
+    assert (b["estado"], b["tactical_id"]) == ("pendiente", None)  # standalone: approved on its own
+    assert summary["bono_ids"] == [b["id"]]
+
+
+def test_a_rerun_leaves_what_an_earlier_run_stored_as_it_is(engine, correr) -> None:
+    # "nothing stored changes": a campaign and a bonus an earlier run left active stay active, and are not re-created.
+    offset_id = _offset(engine, item_id=2964)
+    pct_id = _pct(engine)
+    correr("--apply")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE sell_out_campanas SET estado = 'activa'"))
+        conn.execute(text("UPDATE sell_in_bonos_marca SET estado = 'activa'"))
+        conn.execute(text("DELETE FROM sell_out_dirty"))
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert [c["estado"] for c in _campanas(engine)] == ["activa"]
+    assert [b["estado"] for b in _bonos_costo(engine)] == ["activa"]
+    assert filas[offset_id]["resultado"] == "ya migrado"
+    assert (summary["migrados"], summary["bonos_creados"]) == (0, 0)
+    assert pct_id in filas
+
+
+# --- S10: an offset pending approval waits ---------------------------------------------------------------------------
+
+PENDIENTE_APROBACION = "pendiente de aprobación: se migra en una corrida posterior, una vez aprobado"
+
+
+def _aprobar(engine: Engine, *ids: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET estado = 'activa' WHERE id = ANY(:i)"), {"i": list(ids)})
+
+
+def test_an_offset_pending_approval_is_reported_and_migrates_once_approved(engine, correr) -> None:
+    # Tacticals approval S10: migrating it now would leave two pending items for one load (it and its campaign).
+    offset_id = _offset(engine, marca="EPSON", estado="pendiente")
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", PENDIENTE_APROBACION)
+    assert _campanas(engine) == [] and _count(engine, "sell_in_bonos_marca") == 0
+    assert (summary["no_migrados"], summary["pendientes"], summary["con_error"]) == (1, 0, [])
+    assert offset_id not in _pendientes(engine)  # nothing to review by hand: approving it is enough
+
+    _aprobar(engine, offset_id)
+    _, summary, filas = correr("--apply")
+
+    assert filas[offset_id]["resultado"] == "migrado"
+    [campana] = _campanas(engine)
+    assert (campana["offset_origen_id"], campana["estado"], summary["migrados"]) == (offset_id, "pendiente", 1)
+
+
+def test_an_approved_offset_still_migrates_as_before(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", estado="activa")
+
+    _, summary, filas = correr("--apply")
+
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("migrado", "")
+    assert summary["migrados"] == 1 and len(_campanas(engine)) == 1
+
+
+def test_a_group_with_an_offset_pending_approval_waits_whole(engine, correr) -> None:
+    _, (ref, o2, o3) = _grupo_tplink(engine)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET estado = 'pendiente' WHERE id = :i"), {"i": o2})
+
+    _, summary, filas = correr("--apply")
+
+    assert _campanas(engine) == []
+    assert filas[o2]["motivo"] == PENDIENTE_APROBACION
+    for otro in (ref, o3):
+        assert filas[otro]["resultado"] == "no migrado"
+        assert filas[otro]["motivo"].endswith(f"el offset #{o2} del grupo está pendiente de aprobación")
+    assert summary["pendientes"] == 0
+
+    _aprobar(engine, o2)
+    _, summary, filas = correr("--apply")
+    assert {filas[i]["resultado"] for i in (ref, o2, o3)} == {"migrado"} and len(_campanas(engine)) == 1

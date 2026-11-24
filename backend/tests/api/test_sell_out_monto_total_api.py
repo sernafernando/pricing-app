@@ -436,7 +436,7 @@ COMUNES = {
     "tope_monto": None,
     "acumulable": True,
     "monto_incluye_iva": False,
-    "estado": "activa",
+    "estado": "pendiente",  # an API create waits for approval (tacticals approval S6)
     "offset_origen_id": None,
     "programa_id": None,  # campaign system S1: additive, None until assigned
     "renovada_de_id": None,  # Renovar programa: additive, None unless the campaign is a renewal

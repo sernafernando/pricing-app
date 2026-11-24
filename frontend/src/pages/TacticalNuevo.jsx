@@ -18,6 +18,7 @@ import { tacticalsAPI } from '../services/tacticalsAPI';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import TacticalDatos from '../components/tactical/TacticalDatos';
 import TacticalConfirmarEdicion from '../components/tactical/TacticalConfirmarEdicion';
+import AvisoAprobacion from '../components/tacticals/AvisoAprobacion';
 import TacticalDescartar from '../components/tactical/TacticalDescartar';
 import TacticalLinea from '../components/tactical/TacticalLinea';
 import {
@@ -268,7 +269,8 @@ export default function TacticalNuevo() {
         form.tipo === 'sell_in'
           ? `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · ${porFactura(form, lineas) ? 'baja el costo de sus facturas hasta vender sus unidades' : `baja el costo del ${ddmm(form.fechaDesde)} al ${ddmm(form.fechaHasta)}`}.`
           : `Tactical creado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')} · máximo a cobrar ${dinero(form.moneda, maximoTotal(lineas, contadores))}.`;
-      navigate(tipo.volver, { state: { aviso } });
+      // A new tactical applies nothing until it is approved (tacticals approval S2).
+      navigate(tipo.volver, { state: { aviso: `${aviso} Queda pendiente de aprobación.` } });
     } catch (err) {
       setError(conLineaDeLaPantalla(apiErrorMessage(err, 'No se pudo crear el tactical.'), origen));
       setEnviando(false);
@@ -279,8 +281,10 @@ export default function TacticalNuevo() {
     const { body, origen } = cuerpoDe(form, lineas, gruposTiendas, alcancePorTienda);
     setEnviando(true);
     try {
-      await tacticalsAPI.reemplazar(editar, body);
-      const aviso = `Tactical actualizado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')}.`;
+      const { data } = await tacticalsAPI.reemplazar(editar, body);
+      // A money change sends an approved tactical back to pending (tacticals approval S4): the notice says so.
+      const volvio = original?.estado === 'activo' && data?.estado === 'pendiente';
+      const aviso = `Tactical actualizado: ${body.nombre} · ${lineas.length} ${plural(lineas.length, 'línea', 'líneas')}.${volvio ? ' Volvió a quedar pendiente de aprobación.' : ''}`;
       navigate(tipo.volver, { state: { aviso } });
     } catch (err) {
       setConfirmar(false);
@@ -326,6 +330,8 @@ export default function TacticalNuevo() {
           {botonCrear}
         </div>
       </header>
+
+      {(!editar || original) && <AvisoAprobacion editando={Boolean(editar)} estado={original?.estado} />}
 
       {error && (
         <div className={styles.error} role="alert">

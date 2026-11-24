@@ -18,12 +18,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.schemas.tacticals import TacticalCobranzaIn
 from app.services import tacticals as service
 from app.services.sell_in import bonos_costo
+from tests.services._aprobacion import aprobar_siempre  # noqa: F401 - the fixture, by name
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as w
 from tests.services.test_tacticals_postgres import STUBS, TABLES, USUARIO, _install, _tactical
 
-pytestmark = pytest.mark.postgres
+# Written before tacticals approval: every load is approved right away (`_aprobacion.aprobar_siempre`).
+pytestmark = [pytest.mark.postgres, pytest.mark.usefixtures("aprobar_siempre")]
 
 HOY = date(2026, 11, 5)
 TODOS = ["sell_in", "sell_out"]
