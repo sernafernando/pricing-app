@@ -18,8 +18,7 @@ A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.
 Loading and voiding no longer allocate sales to the purchase (sell-in-costo-si
 T5 PR A: costo SI replaced the FIFO lots, S14); costo SI's triggers queue its
-products. The list and the detail still report each line's consumed units (the
-sum of its frozen `sell_in_consumos`) and the units still left, the supplier's name and whether
+products. The list and the detail report each line, the supplier's name and whether
 the purchase applies (`aplica_condicion`, the single rule for it). The list and
 its summary (`resumir_compras`) share the same filters (`FiltrosCompras`).
 """
@@ -31,7 +30,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, case, func, literal, not_, or_, select
+from sqlalchemy import case, func, literal, not_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -40,7 +39,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn, SellInPreviewIn
 from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
@@ -589,24 +588,11 @@ def repartir_compra_sin_commit(
 def aplica_condicion():
     """THE rule for "this sell in applies", as a SQL boolean over `SellInCompra`.
 
-    A purchase applies while it is not voided (`estado = 'activa'`) AND it
-    still has units left: some line whose `sell_in_consumos` add up to less
-    than its `cantidad`. The `aplica` filter, the per-row `aplica` flag and the
-    summary buckets all follow it. Never restate this condition elsewhere.
+    A purchase applies while it is not voided (`estado = 'activa'`). Its sell in is wholly inside costo SI once the
+    invoice enters (costo SI T5 PR B), so no lot consumption takes it out. The `aplica` filter, the per-row `aplica`
+    flag and the summary buckets all follow it. Never restate this condition elsewhere.
     """
-    consumidas = (
-        select(func.coalesce(func.sum(SellInConsumo.unidades), 0))
-        .where(SellInConsumo.compra_item_id == SellInCompraItem.id)
-        .correlate(SellInCompraItem)
-        .scalar_subquery()
-    )
-    con_unidades = (
-        select(SellInCompraItem.id)
-        .where(SellInCompraItem.compra_id == SellInCompra.id, SellInCompraItem.cantidad > consumidas)
-        .correlate(SellInCompra)
-        .exists()
-    )
-    return and_(SellInCompra.estado == "activa", con_unidades)
+    return SellInCompra.estado == "activa"
 
 
 @dataclass(frozen=True)
@@ -765,7 +751,7 @@ def resumir_compras(db: Session, filtros: FiltrosCompras) -> dict:
 
 
 def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
-    """Purchases with their lines, products, consumed units, supplier name, operations and `aplica`
+    """Purchases with their lines, products, supplier name, operations and `aplica`
     (5 queries per page)."""
     if not compras:
         return []
@@ -784,16 +770,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
     )
     item_ids = {i.item_id for i in items}
     productos = {p.item_id: p for p in db.query(ProductoERP).filter(ProductoERP.item_id.in_(item_ids))} if items else {}
-    consumidas = (
-        dict(
-            db.query(SellInConsumo.compra_item_id, func.coalesce(func.sum(SellInConsumo.unidades), 0))
-            .filter(SellInConsumo.compra_item_id.in_([i.id for i in items]))
-            .group_by(SellInConsumo.compra_item_id)
-            .all()
-        )
-        if items
-        else {}
-    )
 
     # In link order: the first linked operation is the response's single `pedido_compra_id`.
     pedidos: dict[int, list[int]] = {c.id: [] for c in compras}
@@ -809,7 +785,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
         costo = Decimal(item.costo_base_unit)
         monto = Decimal(item.monto_asignado)
         descuento = unit_discount(monto, item.cantidad)
-        usadas = int(consumidas.get(item.id, 0))
         producto = productos.get(item.item_id)
         por_compra[item.compra_id].append(
             {
@@ -823,8 +798,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
                 "descuento_unit": descuento,
                 "costo_con_sell_in_unit": (costo - descuento).quantize(UNIT_PRECISION),
                 "porcentaje": (descuento * 100 / costo).quantize(CENT, rounding=ROUND_HALF_UP) if costo > 0 else None,
-                "unidades_consumidas": usadas,
-                "unidades_restantes": item.cantidad - usadas,
             }
         )
 
@@ -832,7 +805,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
     for compra in compras:
         lineas = por_compra[compra.id]
         total = sum(linea["cantidad"] for linea in lineas)
-        usadas = sum(linea["unidades_consumidas"] for linea in lineas)
         filas.append(
             {
                 **{col: getattr(compra, col) for col in _COLUMNAS_COMPRA},
@@ -841,8 +813,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
                 "pedido_compra_id": pedidos[compra.id][0] if pedidos[compra.id] else None,
                 "pedido_compra_ids": sorted(pedidos[compra.id]),
                 "unidades_total": total,
-                "unidades_consumidas": usadas,
-                "unidades_restantes": total - usadas,
                 "items": lineas,
             }
         )

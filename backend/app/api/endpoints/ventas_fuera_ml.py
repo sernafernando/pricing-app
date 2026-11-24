@@ -109,16 +109,6 @@ class OperacionFueraMLResponse(BaseModel):
     markup: Optional[float]
     ganancia: Optional[float]  # None when the cost is unknown
     signo: int
-    # Sell in / sell out (sell-in-sell-out T14), always null since VPF T4: the engines credit the operations
-    # loaded from the GBP PDF reports (canal `fuera` keyed by PDF line id), never these synced GBP rows, so
-    # looking them up by `it_transaction` would match unrelated PDF lines. Kept so the screen does not break.
-    sell_in_ars: Optional[float] = None
-    sell_out_ars: Optional[float] = None
-    sell_out_estimado: Optional[bool] = None
-    sell_in_estimado: Optional[bool] = None
-    costo_con_sell_in: Optional[float] = None
-    ganancia_con_sell_in_out: Optional[float] = None
-    markup_con_sell_in_out: Optional[float] = None
 
 
 class CountResponse(BaseModel):

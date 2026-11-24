@@ -309,7 +309,7 @@ def compra_items(db: Session, compra_id: int):
 
 @pytest.mark.postgres
 class TestAplica:
-    """`aplica_condicion`: active AND units left. The single rule."""
+    """`aplica_condicion`: active. The single rule (its sell in is inside costo SI once the invoice enters)."""
 
     def _aplica(self, engine: Engine) -> list:
         with sessionmaker(bind=engine)() as db:
@@ -325,13 +325,13 @@ class TestAplica:
 
         assert self._aplica(engine) == [True]
 
-    def test_a_used_up_purchase_stops_applying(self, engine: Engine) -> None:
+    def test_a_purchase_whose_units_were_all_sold_still_applies(self, engine: Engine) -> None:
         w.compra(engine, [(2964, 3, "30.00"), (2270, 1, "10.00")])
         w.venta(engine, "fuera", 2964, 3, D(2026, 10, 2))
         w.venta(engine, "tn", 2270, 1, D(2026, 10, 2))
         _recompute(engine, 2964, 2270)
 
-        assert self._aplica(engine) == [False]
+        assert self._aplica(engine) == [True]
 
     def test_a_voided_purchase_never_applies(self, engine: Engine) -> None:
         w.compra(engine, [(2964, 3, "30.00")], estado="anulada")

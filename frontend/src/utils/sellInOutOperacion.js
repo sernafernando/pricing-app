@@ -1,12 +1,8 @@
 /**
- * The "with sell in / sell out" cells of an operation in the operations lists (`GET .../operaciones`,
- * sell-in-sell-out T14): the cost with sell in and the markup with sell in and sell out, next to the
- * figures without them.
+ * The sell in / sell out amounts a sale's tooltip names (Ventas ML, sell-in-sell-out T14).
  *
- * The API leaves every field null for an operation without either; a USD sell out whose rate is not
- * defined yet is `sell_out_estimado`, and its markup is null while the amount itself is unknown. A sell in of a USD
- * "al cobro" tactical without its collection rate yet is `sell_in_estimado` (tactical sell in USD S10): a known
- * amount marked like an estimated sell out.
+ * A USD sell out whose rate is not defined yet is `sell_out_estimado`. The Ventas fuera de ML operations list no
+ * longer has "c/ sell in" cells (costo SI T5 PR B): its fields were always null and are gone.
  */
 
 const ESTIMADO = ' (estimado: tipo de cambio a definir)';
@@ -29,22 +25,4 @@ export const partesSellInOut = (op, moneda) => {
 export const lineaSellOut = (op, moneda) => {
   if (op.sell_out_ars != null) return `out ${op.sell_out_estimado ? '≈ ' : ''}${moneda(op.sell_out_ars)}`;
   return op.sell_out_estimado ? 'out a definir' : null;
-};
-
-/** `{ costo, markup }` cells: `texto`, the `title` naming the amounts, and whether the markup is negative. */
-export const celdasSellInOut = (op, { moneda, porcentaje }) => {
-  if (op.costo_con_sell_in == null) {
-    return { costo: { texto: '-', title: undefined }, markup: { texto: '-', title: undefined, negativo: false } };
-  }
-  const partes = partesSellInOut(op, moneda);
-  const markup = op.markup_con_sell_in_out;
-  let texto = 'A definir';
-  if (markup != null) texto = `${op.sell_out_estimado || op.sell_in_estimado ? '≈ ' : ''}${porcentaje(markup)}`;
-  return {
-    costo: {
-      texto: `${op.sell_in_estimado ? '≈ ' : ''}${moneda(op.costo_con_sell_in)}`,
-      title: op.sell_in_ars != null ? parteSellIn(op, moneda) : undefined,
-    },
-    markup: { texto, title: partes.join(' · ') || undefined, negativo: markup != null && Number(markup) < 0 },
-  };
 };

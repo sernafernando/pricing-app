@@ -31,8 +31,6 @@ export const COMPRA_ARS = {
   proveedor_nombre: 'TP-Link',
   aplica: true,
   unidades_total: 20,
-  unidades_consumidas: 0,
-  unidades_restantes: 20,
   items: [
     {
       id: 11,
@@ -45,8 +43,6 @@ export const COMPRA_ARS = {
       descuento_unit: '25',
       costo_con_sell_in_unit: '75',
       porcentaje: '25.00',
-      unidades_consumidas: 0,
-      unidades_restantes: 10,
     },
     {
       id: 12,
@@ -59,8 +55,6 @@ export const COMPRA_ARS = {
       descuento_unit: '75',
       costo_con_sell_in_unit: '225',
       porcentaje: '25.00',
-      unidades_consumidas: 0,
-      unidades_restantes: 10,
     },
   ],
 };
@@ -78,7 +72,6 @@ export const COMPRA_USD_ANULADA = {
   descripcion: 'Descuento access points',
   aplica: false,
   unidades_total: 2,
-  unidades_restantes: 2,
   items: [
     {
       id: 21,
@@ -91,8 +84,6 @@ export const COMPRA_USD_ANULADA = {
       descuento_unit: '1',
       costo_con_sell_in_unit: '9',
       porcentaje: '10.00',
-      unidades_consumidas: 0,
-      unidades_restantes: 2,
     },
   ],
 };

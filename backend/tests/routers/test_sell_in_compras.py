@@ -465,43 +465,38 @@ def test_a_cost_override_is_rounded_like_product_costs_in_preview_and_record(cli
     assert D(preview.json()["lineas"][0]["costo_con_sell_in_unit"]) == D(data["items"][0]["costo_con_sell_in_unit"])
 
 
-# ── Consumed units ───────────────────────────────────────────────
+# ── No consumed units (costo SI T5 PR B) ─────────────────────────
 
 
-def test_serialized_lines_count_consumed_and_remaining_units(client, gestor, productos, db):
+UNIDADES = ("unidades_consumidas", "unidades_restantes")
+
+
+def test_a_fully_consumed_purchase_still_applies_and_shows_no_units_left(client, gestor, productos, db):
+    # An invoice sell in is wholly inside costo SI when the invoice enters (plan §3): old lot consumptions neither
+    # take it out of "aplica" nor show as used / left units.
     data = _crear(client, gestor)
-    ids = {i["item_id"]: i["id"] for i in data["items"]}
-    for venta_ref, unidades in ((1, 3), (2, 4)):
+    for i in data["items"]:
         db.add(
             SellInConsumo(
-                compra_item_id=ids[4512],
+                compra_item_id=i["id"],
                 canal="ml",
-                venta_ref=venta_ref,
-                item_id=4512,
+                venta_ref=i["id"],
+                item_id=i["item_id"],
                 fecha_venta=date(2026, 10, 2),
-                unidades=unidades,
-                descuento_ars=D("25.00") * unidades,
+                unidades=i["cantidad"],
+                descuento_ars=D("1.00"),
             )
         )
-    db.add(
-        SellInConsumo(
-            compra_item_id=ids[4513],
-            canal="fuera",
-            venta_ref=9,
-            item_id=4513,
-            fecha_venta=date(2026, 10, 3),
-            unidades=10,
-            descuento_ars=D("750.00"),
-        )
-    )
     db.flush()
 
     (row,) = compras_service.serializar(db, [db.get(SellInCompra, data["id"])])
 
-    por_item = {i["item_id"]: i for i in row["items"]}
-    assert (por_item[4512]["unidades_consumidas"], por_item[4512]["unidades_restantes"]) == (7, 3)
-    assert (por_item[4513]["unidades_consumidas"], por_item[4513]["unidades_restantes"]) == (10, 0)
-    assert (row["unidades_total"], row["unidades_consumidas"], row["unidades_restantes"]) == (20, 17, 3)
+    assert row["aplica"] is True
+    assert row["unidades_total"] == 20
+    assert not any(k in row for k in UNIDADES)
+    assert not any(k in i for i in row["items"] for k in UNIDADES)
+    listed = client.get(BASE, params={"aplica": "si"}, headers=gestor).json()["items"]
+    assert [r["id"] for r in listed] == [data["id"]]
 
 
 # ── USD purchase ─────────────────────────────────────────────────
@@ -586,32 +581,13 @@ def test_list_filters_by_proveedor(client, gestor, tres_compras):
     assert _ids(resp) == [tres_compras["a"]["id"]]
 
 
-def test_list_rows_carry_totals_and_consumed_units(client, gestor, tres_compras, db):
-    a = tres_compras["a"]
-    item_4512 = next(i for i in a["items"] if i["item_id"] == 4512)
-    db.add(
-        SellInConsumo(
-            compra_item_id=item_4512["id"],
-            canal="ml",
-            venta_ref=1,
-            item_id=4512,
-            fecha_venta=date(2026, 10, 2),
-            unidades=3,
-            descuento_ars=D("75.00"),
-        )
-    )
-    db.flush()
-
+def test_list_rows_carry_totals_without_consumed_units(client, gestor, tres_compras):
     rows = client.get(BASE, params={"proveedor_id": tres_compras["proveedor_id"]}, headers=gestor).json()["items"]
     (row,) = rows
     assert row["unidades_total"] == 20
-    assert row["unidades_consumidas"] == 3
-    assert row["unidades_restantes"] == 17
-    por_item = {i["item_id"]: i for i in row["items"]}
-    assert por_item[4512]["unidades_consumidas"] == 3
-    assert por_item[4512]["unidades_restantes"] == 7
-    assert por_item[4513]["unidades_consumidas"] == 0
-    assert por_item[4513]["unidades_restantes"] == 10
+    assert not any(k in row for k in UNIDADES)
+    assert {i["item_id"]: i["cantidad"] for i in row["items"]} == {4512: 10, 4513: 10}
+    assert not any(k in i for i in row["items"] for k in UNIDADES)
 
 
 def test_list_rejects_an_unknown_estado(client, gestor):
@@ -821,15 +797,14 @@ def test_resumen_is_set_based(client, gestor, tres_compras, query_counter):
 # ── Detail ──────────────────────────────────────────────────────────
 
 
-def test_get_returns_the_detail_with_consumption(client, gestor, productos):
+def test_get_returns_the_detail(client, gestor, productos):
     data = _crear(client, gestor)
     resp = client.get(f"{BASE}/{data['id']}", headers=gestor)
 
     assert resp.status_code == 200, resp.text
     detalle = resp.json()
     assert detalle["id"] == data["id"]
-    assert detalle["unidades_consumidas"] == 0
-    assert detalle["unidades_restantes"] == 20
+    assert not any(k in detalle for k in UNIDADES)
     first = detalle["items"][0]
     assert first["codigo"] == "SW-8"
     assert D(first["descuento_unit"]) == D("25")
