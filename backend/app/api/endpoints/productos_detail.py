@@ -4,7 +4,7 @@ Productos - Detail endpoints.
 Handles product detail view, MercadoLibre data (lazy), and active offers.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +32,7 @@ from app.services.promo_filter_resolver import PromoResolverFns, select_promo_re
 from app.services.ml_publication_link_service import sync_links_from_store
 from app.services.ml_publication_status_service import fetch_publication_status_by_mla
 from app.services.ml_publication_tree_service import assemble_publication_tree
+from app.services.ml_publications.view.products import mlas_by_product
 from app.schemas.productos_tree import ProductTreeResponse
 from app.api.endpoints.productos_shared import (
     parsear_tiendas_oficiales_mla,
@@ -539,6 +540,7 @@ def obtener_arbol_ml_producto(
     con_promo_sin_aplicar: Optional[bool] = None,
     con_pxq: Optional[bool] = None,
     tiendas_oficiales: Optional[str] = None,
+    source: Literal["erp_map", "links"] = "erp_map",
 ) -> ProductTreeResponse:
     """Assembles the recursive product/family/catalog/vinculada publication
     tree for `item_id` (productos-catalog-family-tree PR2).
@@ -559,7 +561,14 @@ def obtener_arbol_ml_producto(
     `matches_filter` reuses the exact same `select_promo_resolver`
     dispatch as the flat endpoint, bounded to this product's own MLAs,
     fail-open on cross-DB failure (field simply absent, never hides
-    nodes, never 503s). `con_pxq` (precios mayoristas) and the official
+    nodes, never 503s).
+
+    `source` names the product's own publications: `erp_map` (default,
+    Productos) the active `publicaciones_ml` rows of the product, `links`
+    (the Publicaciones ML product panel) the publications linked to it
+    (`ml_item_product_links`, that screen's one source of truth, the set its
+    row and header count), so the panel never lists other publications than
+    it counts. `con_pxq` (precios mayoristas) and the official
     store filter join the SAME verdict through `_compose_matches`, by
     AND — one composed opinion per MLA, never one filter per mechanism.
     """
@@ -571,10 +580,15 @@ def obtener_arbol_ml_producto(
 
     from app.models.publicacion_ml import PublicacionML
 
-    mla_ids = [
-        row.mla
-        for row in db.query(PublicacionML).filter(PublicacionML.item_id == item_id, PublicacionML.activo == True).all()
-    ]
+    if source == "links":
+        mla_ids = mlas_by_product(db, [item_id]).get(item_id, [])
+    else:
+        mla_ids = [
+            row.mla
+            for row in db.query(PublicacionML)
+            .filter(PublicacionML.item_id == item_id, PublicacionML.activo == True)
+            .all()
+        ]
 
     # Converge the link tables to the store (local reads, zero ML calls, fail-open).
     if mla_ids:
@@ -651,6 +665,7 @@ def obtener_arbol_ml_producto(
         item_id=item_id,
         matches_filter_by_mla=matches_filter_by_mla,
         promo_summary_by_mla=promo_summary_by_mla,
+        linked_mlas=mla_ids if source == "links" else None,
     )
     return result
 

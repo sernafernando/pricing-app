@@ -157,7 +157,7 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * The panel of one product of the Producto view, beside the table: the product (its code, brand, prearmadas badge
  * and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those
  * publications: a product's as Productos' publication tree (`ProductoMLAsPanel`: familias, catálogo and vinculadas,
- * with its own controls, each publication opening its own panel from its "Abrir" button), under the page's
+ * read from the publications linked to the product, `source="links"`, the ones its row and header count; with its own controls, each publication opening its own panel from its "Abrir" button), under the page's
  * promo, store and wholesale filters (`treeFilters`); the "Sin producto" row's, having no product to read a tree of,
  * as a list, each one opening its own panel (`onSelectItem`).
  * The prearmadas badge is the one Productos shows
@@ -333,6 +333,7 @@ export default function ProductPanel({
                       {...treeFilters(filters)}
                       onOpenPublication={onSelectItem}
                       publicationsOnly
+                      source="links"
                     />
                   </div>
                 ) : (

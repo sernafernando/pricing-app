@@ -88,6 +88,7 @@ def assemble_publication_tree(
     item_id: int,
     matches_filter_by_mla: Optional[Dict[str, bool]] = None,
     promo_summary_by_mla: Optional[Dict[str, Dict]] = None,
+    linked_mlas: Optional[List[str]] = None,
 ) -> ProductTreeResponse:
     """Assembles the recursive publication tree for `item_id`.
 
@@ -115,22 +116,42 @@ def assemble_publication_tree(
             summary). Grouping nodes NEVER carry `promo_summary` either.
             `applied_markup` is deferred (not part of this map) — see
             `TreeNodePromoSummary`'s docstring for why.
+        linked_mlas: the product's own publications when the CALLER reads
+            them from the store's links (`ml_item_product_links`, the
+            Publicaciones ML panel) instead of the ERP map: they are the
+            roots, in the given order, each with its `publicaciones_ml` list
+            when the map has one, and a related MLA among them is this
+            product's. `None` (Productos): the product's active
+            `publicaciones_ml` rows, as before.
 
     Returns:
         `ProductTreeResponse` with the root `producto` node, plus the
         skip+flag anomaly count/list for edges deliberately excluded
         from the tree (cross-item_id or unresolvable related MLAs).
     """
-    pub_rows = (
-        db.query(PublicacionML.mla, PublicacionML.lista_nombre, PublicacionML.pricelist_id)
-        .filter(PublicacionML.item_id == item_id, PublicacionML.activo == True)  # noqa: E712
-        .order_by(PublicacionML.id)
-        .all()
-    )
-    mlas = [row.mla for row in pub_rows]
+    if linked_mlas is None:
+        pub_rows = (
+            db.query(PublicacionML.mla, PublicacionML.lista_nombre, PublicacionML.pricelist_id)
+            .filter(PublicacionML.item_id == item_id, PublicacionML.activo == True)  # noqa: E712
+            .order_by(PublicacionML.id)
+            .all()
+        )
+        mlas = [row.mla for row in pub_rows]
+    else:
+        mlas = list(linked_mlas)
+        pub_rows = (
+            db.query(PublicacionML.mla, PublicacionML.lista_nombre, PublicacionML.pricelist_id)
+            .filter(PublicacionML.mla.in_(mlas), PublicacionML.activo == True)  # noqa: E712
+            .order_by(PublicacionML.id)
+            .all()
+            if mlas
+            else []
+        )
     lista_by_mla: Dict[str, Tuple[Optional[str], Optional[int]]] = {
         row.mla: (row.lista_nombre, row.pricelist_id) for row in pub_rows
     }
+    # A linked publication the map does not know is still a node: keyed, so its status is read too.
+    lista_by_mla.update({mla: (None, None) for mla in mlas if mla not in lista_by_mla})
 
     root = TreeNode(level=0, kind="producto", label=f"Producto {item_id}")
 
@@ -140,6 +161,9 @@ def assemble_publication_tree(
     links_by_mla = _load_links(db, mlas)
     edges_by_mla = _load_edges(db, mlas)
     item_id_by_mla = _load_item_id_by_related_mla(db, edges_by_mla)
+    if linked_mlas is not None:
+        # The product's publications are the ones linked to it, whatever product the ERP map names.
+        item_id_by_mla.update({mla: item_id for mla in mlas})
     lista_by_mla.update(_load_lista_by_related_mla(db, edges_by_mla))
 
     # `lista_by_mla` is now keyed by the FULL set of MLAs that can appear as
