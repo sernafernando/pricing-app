@@ -1766,6 +1766,8 @@ describe('Publicaciones ML Producto view (visual)', () => {
                   ],
                 },
                 publication('MLA1100000003', 'Router Archer AX55 (catálogo)', { level: 1, kind: 'catalogo', catalog_product_id: 'MLA23456789' }),
+                // As the real tree labels a publication: its MLA, with its list, status and store chips.
+                publication('MLA1100000004', 'MLA1100000004', { level: 1, lista_nombre: 'Cuotas' }),
                 publication('MLA1100000009', 'Router Archer AX55 eliminado', { level: 1, publication_status: 'closed', publication_sub_status: ['deleted'] }),
               ],
             },
@@ -1797,6 +1799,17 @@ describe('Publicaciones ML Producto view (visual)', () => {
               const r = rect(el);
               if (r.width === 0) continue;
               expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(right + 0.5);
+            }
+            // A node's chips (list, status, store) stay together: one that does not fit wraps next to the others,
+            // never alone back under the node's kind badge.
+            for (const cell of section.element().querySelectorAll('td')) {
+              const badges = [...cell.querySelectorAll('span[class*="badge"]')].filter((badge) => badge.closest('td') === cell);
+              const [, first, ...rest] = badges;
+              for (const chip of first ? rest : []) {
+                expect(rect(chip).left, `${cell.textContent.trim().slice(0, 40)}: ${chip.textContent}`).toBeGreaterThanOrEqual(
+                  rect(first).left - 0.5,
+                );
+              }
             }
           };
           section.element().scrollIntoView();

@@ -133,6 +133,25 @@ describe('ProductoMLAsPanel', () => {
     expect(productosAPI.getProductoTree).toHaveBeenCalledTimes(1);
   });
 
+  it('asks the tree for the given source, and never replays a cached tree of another source', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', children: [] }]),
+    );
+    const mlasCacheRef = { current: new Map() };
+    const promosCacheRef = { current: new Map() };
+
+    const { unmount } = render(<ProductoMLAsPanel itemId="ITEM001" mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} />);
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+    unmount();
+    render(<ProductoMLAsPanel itemId="ITEM001" mlasCacheRef={mlasCacheRef} promosCacheRef={promosCacheRef} source="links" />);
+    await waitFor(() => expect(screen.getByText('MLA001')).toBeInTheDocument());
+
+    expect(productosAPI.getProductoTree.mock.calls).toEqual([
+      ['ITEM001', {}],
+      ['ITEM001', { source: 'links' }],
+    ]);
+  });
+
   it('expanding a leaf node lazily mounts the L2 promotions panel via its own sub-spoiler', async () => {
     productosAPI.getProductoTree.mockResolvedValue(
       treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),

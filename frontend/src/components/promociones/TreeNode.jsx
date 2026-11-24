@@ -75,6 +75,16 @@ const KIND_ROW_CLASS = {
   vinculada: styles.rowTintVinculada,
 };
 
+/** A node's chips as one group (`grouped`), or loose in their cell as Productos lays them out. */
+function ChipGroup({ grouped, children }) {
+  if (!grouped) return children;
+  return (
+    <span className={styles.treeNodeChips} data-tree-chips="">
+      {children}
+    </span>
+  );
+}
+
 /**
  * Recursive tree node — generalizes `ExpandableRow` for the productos catalog
  * /family publication tree (any variable depth, per `kind`:
@@ -327,18 +337,22 @@ function TreeNode({
                 <PanelRightOpen size={14} aria-hidden="true" />
               </button>
             )}
-            {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
-            {statusBadge && (
-              <span className={`${styles.badge} ${statusBadge.className}`} title={statusBadge.title}>
-                <statusBadge.Icon size={12} aria-hidden="true" />
-                {statusBadge.label}
-              </span>
-            )}
-            {bearsMla && (
-              <span className={`${styles.badge} ${styles.badgeReadonly}`}>
-                {storeLabel || 'Sin tienda'}
-              </span>
-            )}
+            {/* In the Publicaciones ML panel (`publicationsOnly`) the node's chips are one group, which its narrow
+                width wraps among themselves, never one alone back under the kind badge; Productos keeps them loose. */}
+            <ChipGroup grouped={publicationsOnly && Boolean(listaLabel || statusBadge || bearsMla)}>
+              {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
+              {statusBadge && (
+                <span className={`${styles.badge} ${statusBadge.className}`} title={statusBadge.title}>
+                  <statusBadge.Icon size={12} aria-hidden="true" />
+                  {statusBadge.label}
+                </span>
+              )}
+              {bearsMla && (
+                <span className={`${styles.badge} ${styles.badgeReadonly}`}>
+                  {storeLabel || 'Sin tienda'}
+                </span>
+              )}
+            </ChipGroup>
             {promoSummary && (
               <span className={styles.treeNodeSummary}>
                 {promoSummary.applied_name && (

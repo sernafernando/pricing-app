@@ -95,3 +95,11 @@
   flex-wrap: wrap;
   overflow-wrap: anywhere;
 }
+
+/* A node's chips take what the title leaves on its line and wrap among themselves: a chip that does not fit goes
+   under the others, never alone back under the kind badge. */
+.tree [data-tree-chips] {
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}

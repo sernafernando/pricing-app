@@ -830,6 +830,13 @@
   color: var(--text-primary);
 }
 
+/* A node's list, status and store chips, spaced as the cell's other items. */
+.treeNodeChips {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Subtle per-kind row tint (restrained "group band" read) — low-opacity
    token backgrounds only, one step down from the badge hues so the badge
    still stands out on the row. */

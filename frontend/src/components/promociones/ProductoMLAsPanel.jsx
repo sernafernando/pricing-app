@@ -84,6 +84,11 @@ function buildPxqParams(conPxq) {
  * (optional) reaches every row the same way: with it, a row carries the
  * publication alone, with no promos, catalog competition or wholesale prices
  * (`TreeNode`); Productos passes none.
+ *
+ * `source` (optional) names the product's own publications: none (Productos)
+ * reads the ERP map, `'links'` (Publicaciones ML) the publications linked to
+ * the product, the ones its row and header count. It is part of the cache
+ * key, so one source's tree is never replayed for the other.
  */
 function ProductoMLAsPanel({
   itemId,
@@ -97,17 +102,19 @@ function ProductoMLAsPanel({
   conPxq,
   onOpenPublication,
   publicationsOnly = false,
+  source,
 }) {
   // `tiendaOficial` participates in filterParams, and therefore in the cache
   // key below: without it, switching stores would replay the previous
   // store's tree from cache and the filter would appear to do nothing.
   const filterParams = useMemo(
     () => ({
+      ...(source ? { source } : {}),
       ...buildPromoFilterParams(promoTipos, promoEstado),
       ...buildTiendaOficialParams(tiendaOficial),
       ...buildPxqParams(conPxq),
     }),
-    [promoTipos, promoEstado, tiendaOficial, conPxq],
+    [source, promoTipos, promoEstado, tiendaOficial, conPxq],
   );
   const filterActive = isFilterActive(promoTipos, promoEstado, tiendaOficial, conPxq);
   const filterKey = useMemo(() => JSON.stringify(filterParams), [filterParams]);

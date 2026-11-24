@@ -203,3 +203,98 @@ class TestTreeEndpointPromoNodeSummary:
             obtener_arbol_ml_producto(item_id=42, db=db, current_user=current_user)
 
         mock_summary.assert_not_called()
+
+
+class TestTreeEndpointLinkedPublications:
+    """The Publicaciones ML product panel asks for the publications LINKED to the product (`source="links"`,
+    `ml_item_product_links`, the one source of truth of that screen, the one its row and header count), not the ERP
+    map (`publicaciones_ml`) Productos reads. Without it the header said "2 publicaciones" over "Sin publicaciones en
+    MercadoLibre". Invented data."""
+
+    @staticmethod
+    def _seed(db) -> None:
+        from datetime import datetime, timezone
+
+        from app.models.ml_publications import MlItemProductLink
+        from app.models.producto import ProductoERP
+        from app.models.publicacion_ml import PublicacionML
+
+        db.add(ProductoERP(item_id=778, codigo="C778", descripcion="Producto 778"))
+        db.flush()
+        linked = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        for mla, variation in (("MLA7781", 0), ("MLA7782", 11), ("MLA7782", 12)):
+            db.add(
+                MlItemProductLink(
+                    item_id=mla,
+                    variation_id=variation,
+                    source="test",
+                    match_status="linked",
+                    producto_item_id=778,
+                    linked_at=linked,
+                )
+            )
+        # The ERP map knows one linked publication (with its list) and one the store links to no product here.
+        db.add(PublicacionML(mla="MLA7782", item_id=778, pricelist_id=4, lista_nombre="Clásica", activo=True))
+        db.add(PublicacionML(mla="MLA7789", item_id=778, pricelist_id=4, activo=True))
+        db.commit()
+
+    def test_the_panel_tree_lists_the_publications_linked_to_the_product(self, db) -> None:
+        self._seed(db)
+
+        with patch("app.api.endpoints.productos_detail.sync_links_from_store") as sync:
+            result = obtener_arbol_ml_producto(item_id=778, db=db, current_user=SimpleNamespace(id=1), source="links")
+
+        nodes = {node.mla: node for node in result.tree.children}
+        assert sorted(nodes) == ["MLA7781", "MLA7782"]  # each publication once, whatever its variations
+        assert (nodes["MLA7782"].lista_nombre, nodes["MLA7782"].pricelist_id) == ("Clásica", 4)
+        assert (nodes["MLA7781"].lista_nombre, nodes["MLA7781"].pricelist_id) == (None, None)
+        assert sorted(sync.call_args.args[1]) == ["MLA7781", "MLA7782"]
+
+    def test_a_related_publication_belongs_to_the_product_only_when_linked_to_it(self, db) -> None:
+        from datetime import datetime, timezone
+
+        from app.models.ml_item_relation import MlItemRelation
+        from app.models.ml_publications import MlItemProductLink
+        from app.models.producto import ProductoERP
+        from app.models.publicacion_ml import PublicacionML
+
+        self._seed(db)
+        db.add(ProductoERP(item_id=779, codigo="C779", descripcion="Producto 779"))
+        db.flush()
+        # MLA7783: the ERP map names this product, the store links it to none. MLA7784: linked to this product, the
+        # map names another one. MLA7785: linked to another product.
+        db.add(PublicacionML(mla="MLA7783", item_id=778, pricelist_id=4, activo=True))
+        db.add(PublicacionML(mla="MLA7784", item_id=779, pricelist_id=4, activo=True))
+        linked = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        for mla, product in (("MLA7784", 778), ("MLA7785", 779)):
+            db.add(
+                MlItemProductLink(
+                    item_id=mla,
+                    variation_id=0,
+                    source="test",
+                    match_status="linked",
+                    producto_item_id=product,
+                    linked_at=linked,
+                )
+            )
+        for related in ("MLA7783", "MLA7784", "MLA7785"):
+            db.add(MlItemRelation(mla="MLA7781", related_mla=related))
+        db.commit()
+
+        with patch("app.api.endpoints.productos_detail.sync_links_from_store"):
+            result = obtener_arbol_ml_producto(item_id=778, db=db, current_user=SimpleNamespace(id=1), source="links")
+
+        first = next(node for node in result.tree.children if node.mla == "MLA7781")
+        assert [child.mla for child in first.children] == ["MLA7784"]
+        assert {(edge.related_mla, edge.reason) for edge in result.skipped_edges} == {
+            ("MLA7783", "unresolvable"),
+            ("MLA7785", "cross_item"),
+        }
+
+    def test_productos_keeps_reading_the_erp_map(self, db) -> None:
+        self._seed(db)
+
+        with patch("app.api.endpoints.productos_detail.sync_links_from_store"):
+            result = obtener_arbol_ml_producto(item_id=778, db=db, current_user=SimpleNamespace(id=1))
+
+        assert [node.mla for node in result.tree.children] == ["MLA7782", "MLA7789"]

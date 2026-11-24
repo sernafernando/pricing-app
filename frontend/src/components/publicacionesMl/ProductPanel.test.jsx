@@ -494,8 +494,9 @@ describe('ProductPanel', () => {
       expect(within(section).getByRole('button', { name: 'Colapsar todo' })).toBeInTheDocument();
       expect(within(section).getByText('MLA1100000001')).toBeInTheDocument();
       expect(within(section).queryByRole('list')).not.toBeInTheDocument();
-      expect(treeProps()).toMatchObject({ itemId: SUMMARY.productoItemId });
-      expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {});
+      expect(treeProps()).toMatchObject({ itemId: SUMMARY.productoItemId, source: 'links' });
+      // The publications linked to the product (what its row and header count), not Productos' ERP map.
+      expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, { source: 'links' });
     });
 
     it('opens a publication of the tree in its own panel, from its "Abrir" button', async () => {
@@ -517,6 +518,7 @@ describe('ProductPanel', () => {
         conPxq: true,
       });
       expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {
+        source: 'links',
         promo_tipos: 'DEAL,SMART',
         promo_estado: 'aplicada',
         tiendas_oficiales: '57997,sin_tienda',
@@ -526,7 +528,7 @@ describe('ProductPanel', () => {
 
     it('hands the tree no filter when the page has none of those', async () => {
       renderPanel({ filters: { ...FILTERS, promo_tipos: [], promo_estado: '', tiendas: [], pxq: '' } });
-      await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {}));
+      await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, { source: 'links' }));
       expect(treeProps()).toMatchObject({ promoTipos: [], promoEstado: undefined, tiendaOficial: undefined, conPxq: false });
     });
 
