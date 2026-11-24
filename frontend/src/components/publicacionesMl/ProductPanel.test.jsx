@@ -127,18 +127,6 @@ vi.mock('./panel/ProductPurchases', () => ({
   },
 }));
 
-// The real viewer hands its parts to the panel's layout (S5): the lots, and the cost mode collapsed.
-let lotesStatus = 'ready';
-vi.mock('../sellIn/SellInLotes', () => ({
-  default: ({ productItemId, layout, collapseModo }) =>
-    layout({
-      status: lotesStatus,
-      nextSale: <p data-testid="sell-in-next">next sale</p>,
-      lots: <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
-      modo: <div data-testid="sell-in-modo">{collapseModo ? 'modo collapsed' : 'modo open'}</div>,
-    }),
-}));
-
 vi.mock('./panel/ProductBanAction', () => ({
   default: ({ productItemId, description }) => <div data-testid="product-ban">{`ban ${productItemId}: ${description}`}</div>,
 }));
@@ -328,6 +316,7 @@ describe('ProductPanel', () => {
   });
 
   it('shows the last purchases under Resumen, after the SKU and EAN', () => {
+    granted = new Set(['productos.ver_info_compras']);
     renderPanel();
     const identity = screen.getByTestId('product-identity');
     const purchases = screen.getByTestId('product-purchases');
@@ -335,48 +324,41 @@ describe('ProductPanel', () => {
     expect(identity.compareDocumentPosition(purchases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows the sell-in lots under Resumen, after the last purchases', () => {
+  // Costo SI T5 PR B: costo SI replaced the FIFO lots, so the lots card, the next sale's sell in and the cost mode
+  // are gone; the last purchases stay, in their own Compras block.
+  it('shows no sell-in lots, next sale or cost mode under Resumen', () => {
+    granted = new Set(['productos.ver_info_compras']);
     renderPanel();
-    const purchases = screen.getByTestId('product-purchases');
-    const lotes = screen.getByTestId('sell-in-lotes');
-    expect(lotes).toHaveTextContent(`lotes of ${SUMMARY.productoItemId}`);
-    expect(purchases.compareDocumentPosition(lotes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('Historial de lotes sell in')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Compras y sell in' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Modo de costo/)).not.toBeInTheDocument();
   });
 
-  it('reads Ficha, Cifras, Compras y sell in, Publicaciones, then the banlist last (S5)', () => {
+  it('reads Ficha, Cifras, Compras, Publicaciones, then the banlist last (S5)', () => {
     granted = new Set(['productos.ver_info_compras']);
     renderPanel();
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    const order = ['Cifras', 'Compras y sell in', 'Últimas compras', 'Historial de lotes sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+    const order = ['Cifras', 'Compras', 'Últimas compras', 'Publicaciones'].map((title) => titles.indexOf(title));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    const compras = screen.getByRole('region', { name: 'Compras y sell in' });
-    // The next sale on top, the cost mode collapsed below the lots.
-    expect(within(compras).getByTestId('sell-in-next')).toBeInTheDocument();
-    expect(within(compras).getByTestId('sell-in-modo')).toHaveTextContent('modo collapsed');
+    const compras = screen.getByRole('region', { name: 'Compras' });
+    expect(within(compras).getByTestId('product-purchases')).toHaveTextContent(`purchases of ${SUMMARY.productoItemId}`);
     const identity = screen.getByTestId('product-identity');
     expect(identity.compareDocumentPosition(screen.getByRole('region', { name: 'Cifras' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const ban = screen.getByTestId('product-ban');
     expect(screen.getByRole('region', { name: 'Publicaciones' }).compareDocumentPosition(ban) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('draws no Compras y sell in while the lots load for a viewer without the purchases permission (S5)', () => {
-    lotesStatus = 'loading';
-    try {
-      renderPanel();
-      expect(screen.queryByRole('region', { name: 'Compras y sell in' })).not.toBeInTheDocument();
-      cleanup();
-      granted = new Set(['productos.ver_info_compras']);
-      renderPanel();
-      expect(screen.getByRole('region', { name: 'Compras y sell in' })).toBeInTheDocument();
-    } finally {
-      lotesStatus = 'ready';
-    }
+  it('draws no Compras block without the purchases permission', () => {
+    renderPanel();
+    expect(screen.queryByRole('region', { name: 'Compras' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('product-purchases')).not.toBeInTheDocument();
   });
 
-  it('has no sell-in lots for "Sin producto"', () => {
+  it('has no Compras block for "Sin producto"', () => {
+    granted = new Set(['productos.ver_info_compras']);
     renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
-    expect(screen.queryByTestId('sell-in-lotes')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Compras' })).not.toBeInTheDocument();
   });
 
   it('shows no promos, catalog competition or wholesale prices under Resumen, whatever the permissions', async () => {

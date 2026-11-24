@@ -30,7 +30,7 @@ import { tiendaSellInOutDe } from '../utils/tiendaSellInOut';
 import { costoSiArs } from '../utils/tiendaGremio';
 import { DollarSign, BarChart3, Check, X, RotateCcw, Ban, CreditCard } from 'lucide-react';
 
-// The list cost in its own currency, as Productos writes it (CostoCell adds the cost with sell in).
+// The list cost in its own currency, as Productos writes it (CostoCell).
 const formatCostoLista = (monto, moneda) => `${moneda} $${monto?.toFixed(2)}`;
 
 export default function Tienda() {
@@ -1599,7 +1599,7 @@ export default function Tienda() {
                       {p.costo === null || p.costo === undefined ? (
                         <span className="text-muted">-</span>
                       ) : (
-                        <CostoCell monto={p.costo} moneda={p.moneda_costo} sellInOut={p.sell_in_out} format={formatCostoLista} />
+                        <CostoCell monto={p.costo} moneda={p.moneda_costo} format={formatCostoLista} />
                       )}
                     </td>
                     <td>

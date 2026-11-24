@@ -6,7 +6,7 @@ import CostoCell from './CostoCell';
 const format = (monto, moneda) => `${moneda} ${monto.toFixed(2).replace('.', ',')}`;
 
 const PPP = { costo: 17.04, moneda: 'USD', fecha: '2026-08-27', markups: {} };
-// A real shape: 17.04 USD at 1570 = 26752.80 ARS; the lot gives 963.10 ARS off (0.6134 USD at that same rate).
+// The retired sell in figure an older payload may still carry (costo SI T5 PR B): never rendered.
 const SELL_IN_USD = {
   compra_item_id: 7,
   bono_id: null,
@@ -30,50 +30,34 @@ const SELL_IN_ARS = {
 const cell = (container) => container.firstChild;
 
 describe('CostoCell — the unit cost in its own currency, one line (S10, S10b)', () => {
-  it('shows a USD cost and its cost with sell in in USD on one line, the pesos and the PPP only in the tooltip', () => {
-    const { container } = render(
-      <CostoCell monto={17.04} moneda="USD" ppp={PPP} sellInOut={{ sell_in: SELL_IN_USD }} format={format} />,
-    );
-    expect(cell(container).textContent).toBe('USD 17,04 c/ sell in USD 16,43');
-    expect(screen.queryByText(/ARS/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/ppp/)).not.toBeInTheDocument();
-    const title = cell(container).getAttribute('title');
-    expect(title).toContain('ppp: USD $17.04 (27/08/26)');
-    expect(title).toContain('c/ sell in en pesos: ARS 25789,70');
-    expect(title).toContain('Descuento de sell in por unidad: USD 0,61 (ARS 963,10)');
-    expect(title).toContain('Unidades restantes del lote: 12');
-  });
-
-  it('keeps an ARS cost in ARS, with no second pesos figure', () => {
-    const { container } = render(
-      <CostoCell monto={40000} moneda="ARS" ppp={null} sellInOut={{ sell_in: SELL_IN_ARS }} format={format} />,
-    );
-    expect(cell(container).textContent).toBe('ARS 40000,00 c/ sell in ARS 39900,00');
-    const title = cell(container).getAttribute('title');
-    expect(title).toContain('sin PPP');
-    expect(title).not.toContain('en pesos');
-    expect(title).toContain('Descuento de sell in por unidad: ARS 100,00 ·');
-  });
-
-  it('shows the cost with sell in as pending when it has no value in the cost currency, never a number', () => {
-    const pendiente = { ...SELL_IN_USD, costo: null, costo_moneda: null, descuento_unit_moneda: null };
-    const { container } = render(
-      <CostoCell monto={17.04} moneda="USD" ppp={PPP} sellInOut={{ sell_in: pendiente }} format={format} />,
-    );
-    expect(cell(container).textContent).toBe('USD 17,04 c/ sell in pendiente');
-  });
-
-  it('is the cost alone without sell in, the PPP still in the tooltip', () => {
-    const { container } = render(<CostoCell monto={17.04} moneda="USD" ppp={PPP} sellInOut={null} format={format} />);
+  it('shows a USD cost on one line, the PPP only in the tooltip', () => {
+    const { container } = render(<CostoCell monto={17.04} moneda="USD" ppp={PPP} format={format} />);
     expect(cell(container).textContent).toBe('USD 17,04');
+    expect(screen.queryByText(/ppp/)).not.toBeInTheDocument();
     expect(cell(container).getAttribute('title')).toBe('ppp: USD $17.04 (27/08/26)');
   });
 
-  it('names the cost bonuses as the origin of a sell in without a lot', () => {
-    const bono = { ...SELL_IN_ARS, compra_item_id: null, bono_id: 4, bono_ids: [4, 9], unidades_restantes: null };
+  it('reads "sin PPP" when the PPP is null', () => {
+    const { container } = render(<CostoCell monto={40000} moneda="ARS" ppp={null} format={format} />);
+    expect(cell(container).textContent).toBe('ARS 40000,00');
+    expect(cell(container).getAttribute('title')).toBe('sin PPP');
+  });
+
+  // costo SI T5 PR B: costo SI replaced the FIFO lots and the per-sale cost bonuses, so there is no "c/ sell in".
+  it.each([
+    ['a lot', { sell_in: SELL_IN_USD }],
+    ['a cost bonus', { sell_in: { ...SELL_IN_ARS, compra_item_id: null, bono_id: 4, bono_ids: [4, 9] } }],
+  ])('shows no cost with sell in even when an older payload still carries %s', (_, sellInOut) => {
     const { container } = render(
-      <CostoCell monto={40000} moneda="ARS" ppp={null} sellInOut={{ sell_in: bono }} format={format} />,
+      <CostoCell monto={17.04} moneda="USD" ppp={PPP} sellInOut={sellInOut} format={format} />,
     );
-    expect(cell(container).getAttribute('title')).toContain('Bonos #4, #9 sobre el costo');
+    expect(cell(container).textContent).toBe('USD 17,04');
+    expect(container.textContent).not.toMatch(/sell in/);
+    expect(cell(container).getAttribute('title')).toBe('ppp: USD $17.04 (27/08/26)');
+  });
+
+  it('has no tooltip without a PPP to show', () => {
+    const { container } = render(<CostoCell monto={17.04} moneda="USD" format={format} />);
+    expect(cell(container).getAttribute('title')).toBeNull();
   });
 });

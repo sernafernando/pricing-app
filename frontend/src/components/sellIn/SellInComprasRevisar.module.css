@@ -1,5 +1,4 @@
-/* Sell in's "Compras a revisar" (owner L29): the Productos tab's dense table and filter card
-   (SellInProductosCosto.module.css), with the suspicious price in the danger color, the deviation as a warning chip
+/* Sell in's "Compras a revisar" (owner L29): a dense table and a filter card, with the suspicious price in the danger color, the deviation as a warning chip
    and the state as a pill. Design tokens only, so light and dark follow the theme. */
 
 .filtros {

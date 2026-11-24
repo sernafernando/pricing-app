@@ -1,7 +1,6 @@
 /**
- * Sell in and sell out next to the plain figures (sell-in-sell-out T10). Owner
- * rule: "Always show both: cost and cost with sell in; markup and totals
- * without and with sell out." The figures come computed in the product's
+ * Sell out next to the plain figures (sell-in-sell-out T10; no cost with sell
+ * in since costo SI T5 PR B: costo SI already holds it). The figures come computed in the product's
  * `sell_in_out` (GET /productos/{item_id}); they are shown only to who may see
  * the cost (ml_metricas.ver_ganancia), like the offsets.
  */
@@ -38,87 +37,16 @@ beforeEach(() => {
   offsetsGananciaAPI.grupoFiltros.mockResolvedValue({ data: [] });
 });
 
-describe('cost with sell in and sell out per unit', () => {
-  it('shows the cost with sell in, with its discount per unit and the units left of the lot', async () => {
+describe('sell out per unit, no cost with sell in', () => {
+  // costo SI T5 PR B: costo SI replaced the FIFO lots and the per-sale cost bonuses, so the payload has no
+  // sell in and there is no "Costo c/ sell in" fact any more.
+  it('shows no "Costo c/ sell in" fact, the cost, the costo SI and the sell out beside each other', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     const group = await facts();
-    const costo = factOf(group, 'Costo c/ sell in');
-    expect(costo).toHaveTextContent('$ 60.000,00');
-    const detalle = costo.querySelector('[title]').getAttribute('title');
-    expect(detalle).toContain('Descuento por unidad: $ 4.000,00');
-    expect(detalle).toContain('Unidades restantes del lote: 12');
-    // The plain cost stays beside it.
+    expect(within(group).queryByText('Costo c/ sell in', { selector: 'dt' })).not.toBeInTheDocument();
+    expect(group).not.toHaveTextContent(/sell in/);
     expect(factOf(group, 'Costo')).toHaveTextContent('$ 64.000,00');
-  });
-
-  it('S10: a USD cost reads in USD and its cost with sell in in USD too, the pesos small beside the cost', async () => {
-    // 40 USD; the backend priced it at 1600 (64.000 ARS) and sends the sell in in USD at that same rate.
-    const sellIn = {
-      ...SELL_IN_OUT.sell_in,
-      moneda_costo: 'USD',
-      costo_moneda: 37.5,
-      descuento_unit_moneda: 2.5,
-    };
-    preciosAPI.obtenerProducto.mockResolvedValue({
-      data: { ...PRODUCTO, moneda_costo: 'USD', costo: 40, costo_ars: null, sell_in_out: { ...SELL_IN_OUT, sell_in: sellIn } },
-    });
-    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1550, venta: 1600, fecha: '2026-11-11' } });
-    render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    const costo = factOf(group, 'Costo');
-    await waitFor(() => expect(costo).toHaveTextContent('$ 64.000,00'));
-    expect(costo.firstChild).toHaveTextContent(/^USD 40,00$/); // the cost in its currency first, the pesos after it
-    const conSellIn = factOf(group, 'Costo c/ sell in');
-    expect(conSellIn).toHaveTextContent(/^USD 37,50$/);
-    expect(conSellIn.querySelector('[title]').getAttribute('title')).toBe(
-      'Descuento por unidad: USD 2,50 ($ 4.000,00)\nc/ sell in en pesos: $ 60.000,00\nUnidades restantes del lote: 12',
-    );
-  });
-
-  it('S10: a USD cost whose sell in has no USD figure (no rate) says so, with the discount in pesos', async () => {
-    // Review R3-productprices-usd-norate-untested: the backend had no rate, so no cost or discount in USD.
-    const sellIn = {
-      ...SELL_IN_OUT.sell_in,
-      costo: null,
-      moneda_costo: 'USD',
-      costo_moneda: null,
-      descuento_unit_moneda: null,
-    };
-    preciosAPI.obtenerProducto.mockResolvedValue({
-      data: { ...PRODUCTO, moneda_costo: 'USD', costo: 40, costo_ars: null, sell_in_out: { ...SELL_IN_OUT, sell_in: sellIn } },
-    });
-    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1550, venta: 1600, fecha: '2026-11-11' } });
-    render(<ProductPrices productItemId={4101} showCost />);
-    const conSellIn = factOf(await facts(), 'Costo c/ sell in');
-    expect(conSellIn).toHaveTextContent(/^Sin tipo de cambio$/);
-    expect(conSellIn.querySelector('[title]').getAttribute('title')).toBe(
-      'Descuento por unidad: $ 4.000,00\nUnidades restantes del lote: 12',
-    );
-  });
-
-  it('S10: a USD cost with its cost with sell in in USD but no USD discount names the discount in pesos', async () => {
-    const sellIn = { ...SELL_IN_OUT.sell_in, moneda_costo: 'USD', costo_moneda: 37.5, descuento_unit_moneda: null };
-    preciosAPI.obtenerProducto.mockResolvedValue({
-      data: { ...PRODUCTO, moneda_costo: 'USD', costo: 40, costo_ars: null, sell_in_out: { ...SELL_IN_OUT, sell_in: sellIn } },
-    });
-    preciosAPI.tipoCambioActual.mockResolvedValue({ data: { moneda: 'USD', compra: 1550, venta: 1600, fecha: '2026-11-11' } });
-    render(<ProductPrices productItemId={4101} showCost />);
-    const conSellIn = factOf(await facts(), 'Costo c/ sell in');
-    expect(conSellIn).toHaveTextContent(/^USD 37,50$/);
-    expect(conSellIn.querySelector('[title]').getAttribute('title')).toBe(
-      'Descuento por unidad: $ 4.000,00\nc/ sell in en pesos: $ 60.000,00\nUnidades restantes del lote: 12',
-    );
-  });
-
-  it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', async () => {
-    const bono = { compra_item_id: null, bono_id: 4, descuento_unit: 4000, costo: 60000, unidades_restantes: null };
-    preciosAPI.obtenerProducto.mockResolvedValue({
-      data: { ...PRODUCTO_CON_SELL_IN_OUT, sell_in_out: { ...SELL_IN_OUT, sell_in: bono } },
-    });
-    render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    const detalle = factOf(group, 'Costo c/ sell in').querySelector('[title]').getAttribute('title');
-    expect(detalle).toBe('Descuento por unidad: $ 4.000,00\nBono #4 sobre el costo');
+    expect(factOf(group, 'Sell out por unidad')).toHaveTextContent('$ 1.500,00');
   });
 
   it('shows the sell out per unit', async () => {
@@ -134,24 +62,15 @@ describe('cost with sell in and sell out per unit', () => {
     expect(sellOut).not.toHaveTextContent('$');
   });
 
-  it('a lot whose cost has no ARS value says so', async () => {
-    withSellInOut({ ...SELL_IN_OUT, sell_in: { ...SELL_IN_OUT.sell_in, costo: null } });
-    render(<ProductPrices productItemId={4101} showCost />);
-    expect(factOf(await facts(), 'Costo c/ sell in')).toHaveTextContent('Sin tipo de cambio');
-  });
-
-  it('a product without sell in or sell out shows "-" in both facts', async () => {
+  it('a product without sell out shows "-" in its fact', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
     render(<ProductPrices productItemId={4101} showCost />);
-    const group = await facts();
-    expect(factOf(group, 'Costo c/ sell in')).toHaveTextContent(/^-$/);
-    expect(factOf(group, 'Sell out por unidad')).toHaveTextContent(/^-$/);
+    expect(factOf(await facts(), 'Sell out por unidad')).toHaveTextContent(/^-$/);
   });
 
   it('none of it is shown without the cost permission', async () => {
     render(<ProductPrices productItemId={4101} />);
     const group = await facts();
-    expect(group).not.toHaveTextContent('Costo c/ sell in');
     expect(group).not.toHaveTextContent('Sell out por unidad');
     expect(screen.queryByText('c/ SO')).not.toBeInTheDocument();
   });
@@ -214,21 +133,9 @@ describe('markup with sell in and sell out', () => {
     expect(sellCell(await priceOf('PVP 6 cuotas'))).toHaveTextContent(/^—$/);
   });
 
-  it('a lot without an ARS cost leaves the row without price as "—"', async () => {
+  it('a block with no sell out leaves the c/ SO markup as "-", never pending', async () => {
     withSellInOut({
       ...SELL_IN_OUT,
-      sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
-      markups_sell_in: {},
-      markups_sell_in_out: {},
-    });
-    render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent(/^—$/));
-  });
-
-  it('a lot without an ARS cost does not make the markup pending: its cost is the costo SI (D1)', async () => {
-    withSellInOut({
-      ...SELL_IN_OUT,
-      sell_in: { ...SELL_IN_OUT.sell_in, costo: null },
       sell_out: null,
       markups_sell_in: {},
       markups_sell_in_out: {},

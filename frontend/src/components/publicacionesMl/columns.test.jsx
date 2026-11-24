@@ -153,6 +153,7 @@ describe('listing type', () => {
 });
 
 const PPP = { costo: 850, moneda: 'ARS', fecha: '2026-02-14', markups: {} };
+// An older payload's sell in (costo SI T5 PR B): never rendered.
 const SELL_IN = {
   sell_in: {
     compra_item_id: 1,
@@ -191,13 +192,13 @@ describe('product columns', () => {
     expect(screen.getAllByText('—')).toHaveLength(2);
   });
 
-  it('shows the cost with sell in inline on one line, the PPP in the tooltip (S10b)', () => {
+  it('shows the cost alone on one line, the PPP in the tooltip, never a cost with sell in (S10b)', () => {
     const columns = byKey({ canSeeMargin: true });
     const { container } = render(
       columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: PPP, sell_in_out: SELL_IN }),
     );
-    expect(container.textContent).toBe('ARS 40.000,00 c/ sell in ARS 39.900,00');
-    expect(container.firstChild.getAttribute('title')).toContain('ppp: ARS $850.00 (14/02/26)');
+    expect(container.textContent).toBe('ARS 40.000,00');
+    expect(container.firstChild.getAttribute('title')).toBe('ppp: ARS $850.00 (14/02/26)');
   });
 
   it('a product without a PPP row says "sin PPP" in the tooltip, and no sell in without one', () => {

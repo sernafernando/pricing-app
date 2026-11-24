@@ -99,19 +99,6 @@ const API_GETS = vi.hoisted(() => ({
   '/auditoria/tipos-accion': {
     tipos: ['modificar_precio_clasica', 'modificar_precio_web', 'modificar_porcentaje_rebate', 'desmarcar_out_of_cards', 'activar_web_transferencia'],
   },
-  // The product panel's sell-in lots (`SellInLotes`): a used-up lot, the current one, a queued USD one, a future one.
-  '/sell-in/productos/4101/lotes': {
-    item_id: 4101,
-    lotes: [
-      { numero: 1, compra_item_id: 501, compra_id: 41, proveedor: 'Mayorista Sur SRL', facturas: ['A-0003-00012345'], moneda: 'ARS', fecha_desde: '2026-09-01', cantidad: 20, consumidas: 20, restantes: 0, descuento_unit: '1250.000000', estado: 'agotado' },
-      { numero: 2, compra_item_id: 502, compra_id: 42, proveedor: 'Mayorista Sur SRL', facturas: ['A-0003-00012390', 'A-0003-00012391'], moneda: 'ARS', fecha_desde: '2026-10-05', cantidad: 30, consumidas: 12, restantes: 18, descuento_unit: '980.333333', estado: 'vigente' },
-      { numero: 3, compra_item_id: 503, compra_id: 43, proveedor: null, facturas: [], moneda: 'USD', fecha_desde: '2026-10-08', cantidad: 10, consumidas: 0, restantes: 10, descuento_unit: '10500.000000', estado: 'en_cola' },
-      { numero: 4, compra_item_id: 504, compra_id: 44, proveedor: 'TP-Link Argentina', facturas: ['B-0001-00000077'], moneda: 'ARS', fecha_desde: '2026-11-15', cantidad: 50, consumidas: 0, restantes: 50, descuento_unit: '700.000000', estado: 'desde' },
-    ],
-    proxima: { numero: 2, compra_item_id: 502, descuento_unit: '980.333333', restantes: 18, siguiente: { numero: 3, descuento_unit: '10500.000000', fecha_desde: '2026-10-08', estado: 'en_cola' } },
-    bono_costo: null,
-    compra_visible: true,
-  },
 }));
 vi.mock('../../services/api', () => ({
   default: {
@@ -1243,9 +1230,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await showCost(screen);
         const row = rowWith(scrollerOf(), 'Router Archer AX55');
         const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
-        // The owner's case: a USD cost, its cost with sell in in USD too, inline; the PPP and pesos in the tooltip.
-        expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
-        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost with sell in.
+        // The owner's case: a USD cost in USD, the PPP in the tooltip; no cost with sell in (costo SI T5 PR B).
+        expect(cell.textContent).toBe('USD 45,50');
+        // The whole line shows: the cell is as wide as its content, no ellipsis cuts the cost.
         const content = cell.firstElementChild.getBoundingClientRect();
         const box = cell.getBoundingClientRect();
         const padding = parseFloat(getComputedStyle(cell).paddingLeft);
@@ -1410,40 +1397,19 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
-    for (const { width, height } of VIEWPORTS) {
-      it(`${width}x${height} ${theme}: the product's sell-in lots fit inside the panel`, async () => {
-        const screen = await renderProducts({ width, height, theme });
-        await openProductResumen(screen);
-        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
-        const next = aside.getByText(/^Historial: los lotes ya no descuentan ventas/);
-        await expect.element(next).toBeVisible();
-        const panel = document.querySelector('[data-split-panel]');
-        const section = next.element().closest('section');
-        section.scrollIntoView();
-        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-        for (const el of section.querySelectorAll('li, li span, li button')) {
-          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
-        }
-        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-lotes-${width}-${theme}.png` });
-        screen.unmount();
-      });
-    }
-
-    // Resumen of a product in blocks (S5, design approved 2026-11-11): Ficha, Cifras as tiles, Compras y sell in with
-    // the cost mode collapsed behind its chip, Publicaciones, the banlist last. Captured whole, then with the mode open.
-    it(`1440x2600 ${theme}: the product Resumen reads as blocks, the cost mode opens from its chip, nothing pokes out (S5)`, async () => {
+    // Resumen of a product in blocks (S5, design approved 2026-11-11): Ficha, Cifras as tiles, Compras, Publicaciones,
+    // the banlist last. Costo SI T5 PR B retired the sell-in lots card and the cost mode that sat in Compras.
+    it(`1440x2600 ${theme}: the product Resumen reads as blocks, with no sell-in lots or cost mode, nothing pokes out (S5)`, async () => {
       const screen = await renderProducts({ width: 1440, height: 2600, theme });
       await openProductResumen(screen);
       const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
-      await expect.element(aside.getByText(/^Historial: los lotes ya no descuentan ventas/)).toBeVisible();
       await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
       const panel = document.querySelector('[data-split-panel]');
-      const modo = aside.getByRole('region', { name: 'Modo de costo' });
-      await expect.element(modo.getByRole('button', { name: /^(Cambiar|Ver)$/ })).toBeVisible();
       await frame();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-resumen-s5-${theme}.png`, element: panel });
+      expect(panel.textContent).not.toMatch(/Historial de lotes sell in|Modo de costo/);
       const titles = [...panel.querySelectorAll('[role="tabpanel"] h3')].map((h) => h.textContent);
-      const order = ['Ficha', 'Cifras', 'Compras y sell in', 'Publicaciones'].map((title) => titles.indexOf(title));
+      const order = ['Ficha', 'Cifras', 'Compras', 'Publicaciones'].map((title) => titles.indexOf(title));
       expect(order.every((index) => index >= 0), titles.join(' | ')).toBe(true);
       expect([...order].sort((a, b) => a - b)).toEqual(order);
       const box = rect(panel);
@@ -1452,11 +1418,6 @@ describe('Publicaciones ML Producto view (visual)', () => {
         if (rect(el).width === 0) continue;
         expect(rect(el).right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
       }
-      await modo.getByRole('button', { name: /^(Cambiar|Ver)$/ }).click();
-      await expect.element(aside.getByText('Modo actual')).toBeVisible();
-      await frame();
-      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-resumen-s5-modo-${theme}.png`, element: panel });
-      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
       screen.unmount();
     });
 
@@ -2509,16 +2470,17 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           // The offsets load after the prices: wait for the markup with offset before measuring.
           await expect.poll(() => chip('Clásica', 'markup-offset')?.textContent).toBe('31,56%');
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-          // The "Costo con offset" fact is gone; the cost with sell in stays.
+          // The "Costo con offset" fact is gone, and so is the cost with sell in (costo SI T5 PR B).
           expect(facts).not.toHaveTextContent('Costo con offset');
-          expect(facts).toHaveTextContent('Costo c/ sell in');
+          expect(facts).not.toHaveTextContent('Costo c/ sell in');
 
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
           expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
           expect(chip('Clásica', 'markup-sell-in-out').textContent).toBe('28,80%');
-          expect(facts).toHaveTextContent('$ 60.000,00');
+          expect(facts).not.toHaveTextContent('$ 60.000,00'); // the retired cost with sell in
+          expect(facts).toHaveTextContent('$ 1.500,00'); // the sell out per unit
           // Readable on the panel in both themes: the table paints nothing of its own.
           let backdrop = table;
           while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;

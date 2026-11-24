@@ -64,7 +64,6 @@ const costCell = (item) => {
       monto={item.costo.amount}
       moneda={item.costo.currency}
       ppp={item.ppp}
-      sellInOut={item.sell_in_out}
       format={costAmount}
     />
   );
