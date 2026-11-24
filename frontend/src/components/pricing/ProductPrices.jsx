@@ -12,67 +12,18 @@ import { LISTS, errorText, warningText, writePrice } from './priceWrites';
 import ProductToggles from './ProductToggles';
 import CostoSiCell from '../CostoSiCell';
 import styles from './ProductPrices.module.css';
-import { sellInOrigen } from '../../utils/sellInOrigen';
 
 /** The typed value as editable text again, for the editor's mode. */
 const editorValue = (row, product, mode) =>
   mode === 'markup' ? formatMarkupInput(product[row.markup]) : formatPrecioInput(product[row.precio]);
 
 
-/** "-": the product has no sell in (or no sell out) today. */
+/** "-": the product has no sell out today. */
 const NoSellInOut = ({ title }) => (
   <span className={styles.muted} title={title}>
     -
   </span>
 );
-
-/**
- * The cost of the purchase lot the next sale takes its sell in from (FIFO),
- * with its discount per unit and its origin (the lot's units left, or the % of cost bonuses) in the tooltip.
- */
-function SellInCost({ sellIn }) {
-  if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
-  const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
-  const pesos = `$ ${formatAmount(sellIn.descuento_unit)}`;
-  // S10: in the cost's own currency (the backend converts it at the rate it converted the cost with), pesos aside.
-  const moneda = sellIn.moneda_costo;
-  if (moneda && moneda !== 'ARS') {
-    const lines = [];
-    if (!isBlank(sellIn.descuento_unit_moneda)) {
-      lines.push(`Descuento por unidad: ${moneda} ${formatAmount(sellIn.descuento_unit_moneda)} (${pesos})`);
-    } else {
-      lines.push(`Descuento por unidad: ${pesos}`);
-    }
-    if (!isBlank(sellIn.costo)) lines.push(`c/ sell in en pesos: $ ${formatAmount(sellIn.costo)}`);
-    lines.push(origen);
-    const detalleMoneda = lines.join('\n');
-    if (isBlank(sellIn.costo_moneda)) {
-      return (
-        <span className={styles.muted} title={detalleMoneda}>
-          Sin tipo de cambio
-        </span>
-      );
-    }
-    return (
-      <span className={styles.sellInCost} title={detalleMoneda}>
-        {moneda} {formatAmount(sellIn.costo_moneda)}
-      </span>
-    );
-  }
-  const detalle = `Descuento por unidad: ${pesos}\n${origen}`;
-  if (isBlank(sellIn.costo)) {
-    return (
-      <span className={styles.muted} title={detalle}>
-        Sin tipo de cambio
-      </span>
-    );
-  }
-  return (
-    <span className={styles.sellInCost} title={detalle}>
-      $ {formatAmount(sellIn.costo)}
-    </span>
-  );
-}
 
 /** The credit per unit (without VAT) of the campaigns that would credit the next sale. */
 function SellOutAmount({ sellOut }) {
@@ -142,8 +93,8 @@ function CostoSiFact({ costoSi }) {
  * (anyone who sees the prices) and, only for `showCost` (the caller's
  * ml_metricas.ver_ganancia), its cost in its own currency. A USD cost shows
  * its pesos at the current rate (`rate`, venta) as a small secondary figure.
- * Beside it, the costo SI, the cost with sell in and the sell out per unit, as the
- * backend computes them (`costo_si`, `sell_in_out`). `action` (the panel's Calcular) closes the line.
+ * Beside it, the costo SI and the sell out per unit, as the backend computes
+ * them (`costo_si`, `sell_in_out`). `action` (the panel's Calcular) closes the line.
  */
 function ProductFacts({ product, showCost, isUsd, rate, action }) {
 
@@ -180,12 +131,6 @@ function ProductFacts({ product, showCost, isUsd, rate, action }) {
               <dt className={styles.factLabel}>Costo SI</dt>
               <dd className={styles.factValue}>
                 <CostoSiFact costoSi={product.costo_si} />
-              </dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Costo c/ sell in</dt>
-              <dd className={styles.factValue}>
-                <SellInCost sellIn={product.sell_in_out?.sell_in} />
               </dd>
             </div>
             <div className={styles.fact}>

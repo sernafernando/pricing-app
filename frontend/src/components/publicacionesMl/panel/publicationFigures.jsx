@@ -1,7 +1,7 @@
 import HeaderMarkup from './HeaderMarkup';
 import { amount, count, units } from './format';
 import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
-import { SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
+import { SellInOutMarkupLine } from './sellInOutFigures';
 import styles from './panel.module.css';
 
 const money = (value) => {
@@ -15,10 +15,10 @@ const money = (value) => {
  * never on each row). The price with "Markup <value>" under it in its tone, the
  * markup only with `ml_metricas.ver_ganancia`. Then Stock, and Ventas 30 días only
  * with `ml_metricas.ver` (the table's own figures), and only once the detail sends
- * them (`sales_30d`, absent from an older backend). With `ml_metricas.ver_ganancia`, the markup with sell in /
- * sell out under the markup (S9) and a Costo card (S6) from the detail's `markup_breakdown` and `sell_in_out`.
+ * them (`sales_30d`, absent from an older backend). With `ml_metricas.ver_ganancia`, the markup with sell out
+ * under the markup (S9) and a Costo card (S6) from the detail's `markup_breakdown` and `sell_in_out`.
  */
-/** Which unit the breakdown explains (L11): the cost and the sell in/out markup are that unit's, the markup above is
+/** Which unit the breakdown explains (L11): the cost and the sell out markup are that unit's, the markup above is
  * the publication's range. Same wording as Rentabilidad's "Unidad calculada". */
 const unitHint = (breakdown) =>
   breakdown?.variation_id == null ? 'Unidad calculada: la publicación' : `Unidad calculada: variación ${breakdown.variation_id}, la de peor markup`;
@@ -34,16 +34,15 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
       note: canSeeMargin ? (
         <>
           <HeaderMarkup markup={row.markup} />
-          {/* S9: the markup with the product's sell in / sell out today, as Rentabilidad shows it. */}
+          {/* S9: the markup with the product's sell out today, as Rentabilidad shows it. */}
           <SellInOutMarkupLine sellInOut={sellInOut} className={styles.figureSubnote} labelClassName={styles.figureMarkupWord} labelTitle={hint} />
         </>
       ) : null,
     },
   ];
-  // S6: the product's cost and, under it, the cost with sell in, both in the cost's own currency (S10: USD 17,04
-  // for a USD cost); the pesos the markup divides by go in the tooltip.
+  // S6: the product's cost in its own currency (S10: USD 17,04 for a USD cost); the pesos the markup divides by go in
+  // the tooltip. No cost with sell in (costo SI T5 PR B: costo SI already holds the sell in).
   if (canSeeMargin && breakdown?.costo_ars != null) {
-    const sellIn = sellInOut?.sell_in;
     const costo = costoEnMoneda(breakdown);
     // A USD cost with no rate today has no pesos figure: `costo_ars` is then not pesos, so it is never shown as such.
     const pesos = sinTipoDeCambio(breakdown) ? 'sin tipo de cambio' : `en pesos: ${money(breakdown.costo_ars)}`;
@@ -53,11 +52,7 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales, breakdown =
       key: 'cost',
       label: 'Costo',
       value: <span title={title}>{formatMoneda(costo.monto, costo.moneda, money)}</span>,
-      note: sellIn ? (
-        <>
-          c/ sell in <SellInCost sellIn={sellIn} format={money} />
-        </>
-      ) : null,
+      note: null,
     });
   }
   figures.push(

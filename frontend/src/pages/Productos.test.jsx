@@ -1162,12 +1162,12 @@ describe('CS-12: legacy single-id URL of a grouped store', () => {
 // CS-13 — sell in / sell out companion lines (sell-in-sell-out T10)
 // ---------------------------------------------------------------------------
 describe('CS-13: sell in / sell out companion lines', () => {
-  it('shows the cost with sell in and the markups with sell in / sell out for a row with sell_in_out', async () => {
+  it('shows the markup with sell out and no cost with sell in for a row with sell_in_out', async () => {
     setupApiMocks({
       productos: [
         makeProducto({
           sell_in_out: {
-            // A USD cost: the backend also sends its sell in in USD, at the rate it converted the cost with (S10)
+            // An older payload's sell in (costo SI T5 PR B): never rendered, the cost stays alone.
             sell_in: {
               compra_item_id: 7,
               descuento_unit: 150,
@@ -1191,10 +1191,8 @@ describe('CS-13: sell in / sell out companion lines', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
-    const costo = screen.getByText('c/ sell in USD $8.50').parentElement;
-    expect(costo.textContent).toBe('USD $10.00 c/ sell in USD $8.50'); // one line, in the cost's currency (S10b)
-    expect(costo.getAttribute('title')).toContain('c/ sell in en pesos: ARS $850.50');
-    expect(screen.queryByText('c/ sell in: 20.50%')).not.toBeInTheDocument(); // D1: no markup c/ sell in
+    expect(screen.getByText('USD $10.00').textContent).toBe('USD $10.00'); // the cost alone, one line (S10b)
+    expect(screen.queryByText(/c\/ sell in/)).not.toBeInTheDocument(); // no cost nor markup c/ sell in
     expect(screen.getByText('c/ SO: 25.25%')).toBeInTheDocument();
   });
 

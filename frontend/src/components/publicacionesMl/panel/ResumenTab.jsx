@@ -18,7 +18,7 @@ import {
 import panelStyles from './panel.module.css';
 import styles from './resumen.module.css';
 import { costoEnMoneda, formatMoneda, sinTipoDeCambio } from './costoMoneda';
-import { MarkupValue, SellInCost, SellInOutMarkupLine } from './sellInOutFigures';
+import { MarkupValue, SellInOutMarkupLine } from './sellInOutFigures';
 
 /** Money with its sign, as the panel header writes it ("$ 98.500,50"); a missing figure stays `null`. */
 const money = (value) => {
@@ -210,19 +210,12 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
           </Step>
           <Step label="Costo" className={styles.stepCost}>
             {/* S10: the cost in its own currency (USD 17,04), the pesos the markup divides by small under it. */}
-            {costo.moneda === 'ARS' && !sellInOut ? (
+            {costo.moneda === 'ARS' ? (
               money(breakdown.costo_ars)
             ) : (
               <>
                 <span>{formatMoneda(costo.monto, costo.moneda, money) ?? <span className={cellStyles.empty}>—</span>}</span>
-                {costo.moneda !== 'ARS' && (
-                  <span className={styles.muted}>{sinTipoDeCambio(breakdown) ? 'Sin tipo de cambio' : money(breakdown.costo_ars)}</span>
-                )}
-                {sellInOut && (
-                  <span className={styles.muted}>
-                    c/ sell in <SellInCost sellIn={sellInOut.sell_in} format={money} />
-                  </span>
-                )}
+                <span className={styles.muted}>{sinTipoDeCambio(breakdown) ? 'Sin tipo de cambio' : money(breakdown.costo_ars)}</span>
               </>
             )}
           </Step>

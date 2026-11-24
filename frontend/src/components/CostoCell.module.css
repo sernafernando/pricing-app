@@ -6,7 +6,7 @@
   cursor: help;
 }
 
-/* The cost with sell in, inline and subordinate: same currency as the cost, smaller and dimmer. */
+/* An inline subordinate note beside a cost, smaller and dimmer: `CostoSiCell`'s "lista" tag. */
 .sellIn {
   font-size: 0.8em;
   color: var(--text-tertiary);

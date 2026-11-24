@@ -171,14 +171,15 @@ describe('the product rows', () => {
     expect(within(none).queryByText(/USD/)).not.toBeInTheDocument();
   });
 
-  it("shows the product's cost with sell in in the cost's currency on the cost's line, the PPP in its tooltip", async () => {
+  it("shows the product's cost alone in its currency, the PPP in its tooltip, never a cost with sell in", async () => {
+    // COST_LINES still carries an older payload's sell in (costo SI T5 PR B): never rendered.
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES }, PRODUCT_ROWS[2]]) });
     render(<Harness />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
-    const cell = within(row).getByText('c/ sell in USD 43,27').parentElement;
-    expect(cell.textContent).toBe('USD 45,50 c/ sell in USD 43,27');
-    expect(cell.getAttribute('title')).toContain('ppp: USD $41.20 (30/09/26)');
-    expect(cell.getAttribute('title')).toContain('c/ sell in en pesos: ARS 63.000,00');
+    const cell = within(row).getByText('USD 45,50');
+    expect(cell.textContent).toBe('USD 45,50');
+    expect(cell.getAttribute('title')).toBe('ppp: USD $41.20 (30/09/26)');
+    expect(within(row).queryByText(/sell in/)).not.toBeInTheDocument();
   });
 
   it("fills the product row's costo SI column from the product's own costo_si", async () => {

@@ -20,8 +20,8 @@ function sellOutTitle(sellOut) {
  * under the real cost/markup value, never replacing it.
  *
  * - `sellInOut` null/undefined, or no sell out → renders nothing: the row stays
- *   as it was. A sell in alone shows no markup here (D1: no FIFO-lot markup;
- *   markups are over costo SI and sell out adds to the sale's profit).
+ *   as it was. There is no sell in (costo SI T5 PR B; D1: markups are over
+ *   costo SI and sell out adds to the sale's profit).
  * - The cost cell is `CostoCell` (S10b: one line, in the cost's currency).
  * - `markupKey`: the markup with sell out (`markups_sell_in_out`, labelled
  *   "c/ SO"), same keys and scale as the PPP markups.
