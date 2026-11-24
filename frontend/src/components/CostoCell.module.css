@@ -7,7 +7,7 @@
 }
 
 /* An inline subordinate note beside a cost, smaller and dimmer: `CostoSiCell`'s "lista" tag. */
-.sellIn {
+.tag {
   font-size: 0.8em;
   color: var(--text-tertiary);
 }

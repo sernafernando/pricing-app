@@ -19,7 +19,7 @@ export const partesSellInOut = (op, moneda) => {
   return partes;
 };
 
-/** A sale's sell out under its sell in in Ventas ML: `out ≈` while estimated, `a definir` while unknown, null without one. */
+/** A sale's sell out line in Ventas ML: `out ≈` while estimated, `a definir` while unknown, null without one. */
 export const lineaSellOut = (op, moneda) => {
   if (op.sell_out_ars != null) return `out ${op.sell_out_estimado ? '≈ ' : ''}${moneda(op.sell_out_ars)}`;
   return op.sell_out_estimado ? 'out a definir' : null;
