@@ -1,0 +1,17 @@
+/* An amount with its USD equivalent below (the "Compras a revisar" stacked price, #2381). */
+
+.apilado {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+/* It may wrap ("USD 34,00" over "a TC 1.580") in a narrow column instead of widening it, even inside a nowrap cell. */
+.secundario {
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: right;
+  white-space: normal;
+  color: var(--cf-text-secondary);
+}

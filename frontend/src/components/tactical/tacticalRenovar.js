@@ -10,6 +10,7 @@
  * Editar (S8) loads the same values with `edicionDe`: the dates and each invoice line's invoice are kept, since saving
  * replaces this same tactical (`PUT /tacticals/{id}`). `impactoDe` is what the confirmation tells before that save.
  */
+import { montosDeLinea } from '../tacticals/tacticalsFormat';
 import { alcanceDeLinea, nuevaLinea } from './tacticalLineas';
 import { seleccionDesdeDetalle } from './tacticalTiendas';
 
@@ -99,9 +100,11 @@ export const conFacturas = (lineas, buscadas) =>
 export function impactoDe(tactical, form) {
   const activas = tactical.lineas.filter((l) => l.estado === 'activa');
   const aplicado = {};
-  activas.forEach((l) => {
-    const monto = Number(l.monto_usado ?? 0);
-    if (monto) aplicado[l.moneda] = (aplicado[l.moneda] ?? 0) + monto;
+  // Per currency each line used (`montos_usados`, sell in incident S1: a % cost line over USD and ARS products used
+  // one amount in each), never added across currencies.
+  activas.flatMap(montosDeLinea).forEach(({ moneda, monto: valor }) => {
+    const monto = Number(valor ?? 0);
+    if (monto) aplicado[moneda] = (aplicado[moneda] ?? 0) + monto;
   });
   const unidades = activas.reduce((a, l) => a + (l.unidades_usadas ?? 0), 0);
   const tasa = activas.find((l) => l.tc_al_cobro != null)?.tc_al_cobro ?? null;

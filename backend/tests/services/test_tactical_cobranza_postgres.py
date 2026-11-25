@@ -237,11 +237,14 @@ def _segun_las_lineas(db: Session, filtros: service.Filtros) -> dict:
             for linea in t["lineas"]:
                 if linea["monto_estimado"]:
                     estimados.add(linea["moneda"])
-                montos[linea["moneda"]] = montos.get(linea["moneda"], Decimal(0)) + Decimal(linea["monto_usado"])
-                if (tope := _tope_de(linea)) is not None:
-                    topes[linea["moneda"]] = topes.get(linea["moneda"], Decimal(0)) + tope
-                else:
-                    sin_tope.add(linea["moneda"])
+                # Sell in incident S1/S3: what a line used per currency (`montos_usados`); its cap is in its own.
+                for usado in linea["montos_usados"]:
+                    moneda = usado["moneda"]
+                    montos[moneda] = montos.get(moneda, Decimal(0)) + Decimal(usado["monto"])
+                    if moneda == linea["moneda"] and (tope := _tope_de(linea)) is not None:
+                        topes[moneda] = topes.get(moneda, Decimal(0)) + tope
+                    else:
+                        sin_tope.add(moneda)
         salida[clave] = {
             "cantidad": len(grupo),
             "sin_tope": sum(1 for t in grupo if all(_tope_de(linea) is None for linea in t["lineas"])),
@@ -297,8 +300,9 @@ class TestKpisEnSql:
         service.crear(db, _tactical(nombre="Sin uso", moneda="USD", tc_modo="al_cobro"), USUARIO)
         # Sell in cost bonus (ARS) with what its sales got.
         costo = service.crear(db, _tactical("sell_in", costo_linea, nombre="Costo"), USUARIO)
-        # Sell in invoice percentage bonus (the tactical's ARS): its active ARS purchases count; a voided one and one
-        # in USD do not.
+        # Sell in invoice percentage bonus (the tactical's ARS): its active purchases count, each in its own currency
+        # (sell in incident S3 stores a % bonus's purchase in its invoice's currency: a USD one is real, not left from a
+        # currency change, so its USD 555 is no longer dropped); a voided one does not.
         pedido = bw.pedido(engine, {2964: 10}, date(2026, 10, 10))
         factura = service.crear(
             db,
@@ -349,12 +353,12 @@ class TestKpisEnSql:
 
         assert kpis == _segun_las_lineas(db, filtros)
         assert kpis == {
-            # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Sin uso USD 0. Caps:
-            # Tope 500; the other 5 have none.
+            # Campaña 131,00 + Factura % 40,50 + Campaña anulada 10,10 + Costo anulado 20,20; Factura %'s USD purchase
+            # 555 + Sin uso USD 0. Caps: Tope 500; the other 5 have none.
             "pendientes": {"cantidad": 6, "sin_tope": 5,
                            "montos": [{"moneda": "ARS", "monto": Decimal("201.80"), "tope": Decimal("500.00"),
                                        "tope_parcial": True, "estimado": False},
-                                      {"moneda": "USD", "monto": Decimal("0.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
+                                      {"moneda": "USD", "monto": Decimal("555.00"), "tope": None, "tope_parcial": False, "estimado": False}]},
             # Costo 108,15; Total USD 2,50 + Total USD anulado 0,50, each capped by its USD 300 total; Costo has none.
             "cobrados": {"cantidad": 3, "sin_tope": 1,
                          "montos": [{"moneda": "ARS", "monto": Decimal("108.15"), "tope": None, "tope_parcial": False, "estimado": False},

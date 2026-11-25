@@ -711,17 +711,17 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     ):
         unidades[bono_id] = unidades.get(bono_id, 0) + int(cantidad)
         montos.setdefault(bono_id, {})[moneda] = Decimal(str(monto)).quantize(Decimal("0.01"))
-    # A cost bonus generates no purchase: what costo SI took off the invoices of its period, in its own currency
-    # (T5 PR B, L26), one query when the page has any. Set explicitly: none of its purchase numbers count, and an
-    # invoice no step got generated nothing.
+    # A cost bonus generates no purchase: what costo SI took off the invoices of its period (T5 PR B, L26), in each
+    # currency it is in (an uncapped % in its steps' currency, sell in incident S1), one query when the page has any.
+    # Set explicitly: none of its purchase numbers count, and an invoice no step got generated nothing.
     costo = {b.id: b for b in bonos if b.base == BASE_COSTO_VENTA}
     for bono_id in costo:
         compras[bono_id] = 0
         unidades[bono_id] = 0
         montos[bono_id] = {}
-    for bono_id, (cantidad, monto) in generado.de_bonos(db, costo).items():
+    for bono_id, (cantidad, por_moneda) in generado.de_bonos(db, costo).items():
         unidades[bono_id] = cantidad
-        montos[bono_id] = {costo[bono_id].moneda: monto.quantize(Decimal("0.01"))}
+        montos[bono_id] = {m: v.quantize(Decimal("0.01")) for m, v in por_moneda.items()}
     modelos = _modelos(db, ids)
     repartos = _repartos_de(db, [b.id for b in bonos if b.tipo == MONTO_TOTAL])
     productos = {
@@ -742,7 +742,11 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     filas = []
     for bono in bonos:
         por_moneda = montos.get(bono.id, {})
-        monto_generado = por_moneda.get(bono.moneda, Decimal("0.00"))
+        en_su_moneda = por_moneda.get(bono.moneda, Decimal("0.00"))
+        # What it generated is in one currency: that one (a % of a USD product's cost, or a purchase in its
+        # invoice's currency, sell in incident S1/S3); several or none: its own, `montos_generados` lists them all.
+        moneda_generado = next(iter(por_moneda)) if len(por_moneda) == 1 else bono.moneda
+        monto_generado = por_moneda.get(moneda_generado, Decimal("0.00"))
         filas.append(
             {
                 **{col: getattr(bono, col) for col in _COLUMNAS},
@@ -768,10 +772,12 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                 "pedido_numero": numeros.get(bono.pedido_id),
                 "compras_activas": int(compras.get(bono.id, 0)),
                 "unidades": unidades.get(bono.id, 0),
-                # Only the bonus's own currency: a purchase left in another one is listed apart, never added.
+                # In `moneda_generado`; amounts in different currencies are listed apart, never added.
                 "monto_generado": monto_generado,
+                "moneda_generado": moneda_generado,
                 "montos_generados": [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())],
-                **_restante(bono, unidades.get(bono.id, 0), monto_generado),
+                # A money cap is in the bonus's own currency: only what was generated in it counts against it.
+                **_restante(bono, unidades.get(bono.id, 0), en_su_moneda),
             }
         )
     return filas

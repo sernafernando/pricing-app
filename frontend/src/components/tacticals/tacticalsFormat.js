@@ -132,19 +132,35 @@ export function avanceDeTactical(lineas) {
     const avance = medir(usadas, tope);
     if (avance) unidades = { usadas, tope, ...avance };
   }
-  const monedas = [...new Set(lineas.map((l) => l.moneda))];
+  // Each line's amount per currency (a % cost line over USD and ARS products has two, sell in incident S1).
+  const entradas = lineas.flatMap((linea) => montosDeLinea(linea).map((m) => ({ ...m, linea })));
+  const monedas = [...new Set(entradas.map((e) => e.moneda))];
   const monto = monedas
     .map((moneda) => {
-      const deMoneda = lineas.filter((l) => l.moneda === moneda);
+      const deMoneda = entradas.filter((e) => e.moneda === moneda);
       // ≈ while some line's amount is still an estimate (tactical sell in USD S10), like an estimated sell out.
-      const aprox = deMoneda.some((l) => l.monto_estimado) ? '≈ ' : '';
-      const usado = `${aprox}${formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0), moneda)}`;
-      if (!deMoneda.every((l) => !vacio(l.tope_monto))) return usado;
-      return `${usado} de ${formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.tope_monto), 0), moneda)}`;
+      const aprox = deMoneda.some((e) => e.linea.monto_estimado) ? '≈ ' : '';
+      const usado = `${aprox}${formatMontoTactical(deMoneda.reduce((s, e) => s + Number(e.monto ?? 0), 0), moneda)}`;
+      // A money cap is in its line's own currency.
+      if (!deMoneda.every((e) => e.linea.moneda === moneda && !vacio(e.linea.tope_monto))) return usado;
+      return `${usado} de ${formatMontoTactical(deMoneda.reduce((s, e) => s + Number(e.linea.tope_monto), 0), moneda)}`;
     })
     .join(' · ');
   return { unidades, monto };
 }
+
+/**
+ * What a line used, per currency (sell in incident S1): `montos_usados`, or its one `monto_usado` in its `moneda`
+ * (a client of an older API). A % cost line over products costed in USD and in ARS used one amount in each.
+ */
+export const montosDeLinea = (linea) =>
+  linea.montos_usados?.length ? linea.montos_usados : [{ moneda: linea.moneda, monto: linea.monto_usado }];
+
+/** `USD 11.648,08`, or `ARS 9.668,48 · USD 38,43` when the line used more than one currency. */
+export const usadoDeLinea = (linea) =>
+  montosDeLinea(linea)
+    .map((m) => formatMontoTactical(m.monto, m.moneda))
+    .join(' · ');
 
 /** Columns of a tactical row: the toggle, Nombre, Tipo, Marca, Vigencia, Líneas, Avance, Estado, Cobranza and the
  * actions. */

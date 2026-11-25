@@ -307,3 +307,19 @@ class TestTipoDeCambioAlCobro:
         assert _filas(
             engine, "SELECT moneda, tipo_cambio, tc_definido_en FROM sell_out_campanas WHERE estado = 'activa'"
         ) == [("ARS", None, None)]
+
+
+class TestLineaSellInUsd:
+    """Prod 2026-11-25: PUT /api/tacticals/54 answered 500 (CheckViolation `ck_sell_in_bonos_marca_costo_venta`): the
+    old USD cost bonus (87) was voided and detached, and a USD cost bonus without a tactical broke the CHECK."""
+
+    def test_a_tactical_with_a_usd_sell_in_line_can_be_edited(self, db, engine) -> None:
+        usd = {"moneda": "USD", "tc_modo": "al_cobro"}
+        tactical = service.crear(db, _tactical("sell_in", [MARCA], **usd), USUARIO)
+
+        _reemplazar(db, tactical.id, _tactical("sell_in", [{**MARCA, "valor": "12"}], **usd))
+
+        assert _filas(
+            engine, "SELECT estado, moneda, monto_unit, tactical_id IS NULL, tactical_linea "
+            "FROM sell_in_bonos_marca ORDER BY id"
+        ) == [("anulada", "USD", Decimal("10.00"), True, None), ("activa", "USD", Decimal("12.00"), False, 1)]  # fmt: skip

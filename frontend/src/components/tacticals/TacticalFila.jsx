@@ -9,6 +9,7 @@ import {
   estadoDe,
   formatMontoTactical,
   formatUnidades,
+  usadoDeLinea,
   vacio,
   valorDeLinea,
   vigenciaDe,
@@ -89,7 +90,7 @@ function Lineas({ tactical, onVerLinea }) {
                 <td className={styles.num}>{vacio(linea.tope_monto) ? GUION : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>
                 <td className={styles.num} title={linea.monto_estimado ? 'Estimado: tipo de cambio a definir' : undefined}>
                   {linea.monto_estimado && '≈ '}
-                  {formatMontoTactical(linea.monto_usado, linea.moneda)}
+                  {usadoDeLinea(linea)}
                 </td>
                 <td>
                   {avance ? (

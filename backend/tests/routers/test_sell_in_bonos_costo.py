@@ -248,7 +248,8 @@ def test_a_cost_bonus_reports_what_its_invoices_got_in_costo_si_and_its_cap(clie
 
 
 def test_a_units_cap_that_ran_out_inside_an_invoice_counts_only_its_cap(client, gestor, productos, db):
-    """Costo SI cut the cap inside the second invoice (its % covers only what was left): units stop at the cap."""
+    """Costo SI cut the cap inside the second invoice (its % covers only what was left): units stop at the cap.
+    Sell in incident S1: a % with no money cap reads in its steps' currency (the USD product's), never converted."""
     data = _crear(client, gestor, _costo(porcentaje="1", tope_unidades=4))
     _paso(db, 1, date(2026, 3, 1), 3, "40", [("bono", data["id"], "1.0000")], tc="1000")
     # 1 unit of 4 was left: 1% on a quarter of the invoice.
@@ -256,8 +257,14 @@ def test_a_units_cap_that_ran_out_inside_an_invoice_counts_only_its_cap(client, 
 
     got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
 
-    # ARS 1200 + 4 x USD 50 x 0.25% x 1000 = ARS 500.
-    assert (got["unidades"], got["monto_generado"], got["tope_unidades_restantes"]) == (4, "1700.00", 0)
+    # 3 x USD 40 x 1% = USD 1.20 + 4 x USD 50 x 0.25% = USD 0.50 (it was ARS 1,700 at each invoice's 1000).
+    assert (got["unidades"], got["monto_generado"], got["moneda_generado"], got["tope_unidades_restantes"]) == (
+        4,
+        "1.70",
+        "USD",
+        0,
+    )
+    assert (got["moneda"], got["montos_generados"]) == ("ARS", [{"moneda": "USD", "monto": "1.70"}])
 
 
 def test_a_usd_invoice_is_valued_at_the_rate_its_caps_used_so_the_cap_left_does_not_drift(
@@ -361,6 +368,7 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "compras_activas": 1,
         "unidades": 4,
         "monto_generado": "10.00",
+        "moneda_generado": "USD",  # added by sell in incident S1: the currency `monto_generado` is in
         "montos_generados": [{"moneda": "USD", "monto": "10.00"}],
         "tope_unidades": 10,
         "tope_monto": None,

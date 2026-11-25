@@ -85,7 +85,7 @@ class SellInBonoMarca(Base):
         CheckConstraint(
             "(base = 'factura' AND NOT incluye_iva) "
             "OR (base = 'costo_venta' AND alcance IN ('marca', 'categoria', 'modelos') AND (moneda = 'ARS' "
-            "OR (moneda = 'USD' AND tactical_id IS NOT NULL AND tipo <> 'monto_total')))",
+            "OR (moneda = 'USD' AND (tactical_id IS NOT NULL OR estado = 'anulada') AND tipo <> 'monto_total')))",
             name="ck_sell_in_bonos_marca_costo_venta",
         ),
         UniqueConstraint("offset_origen_id", name="uq_sell_in_bonos_marca_offset_origen_id"),

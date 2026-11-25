@@ -26,8 +26,16 @@ import tabla from './SellInBonoAlcance.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellInBonoAnularIn.motivo` (auditoria.comentario is VARCHAR(500))
 
-/** What the bonus generated in another currency than its own (a purchase left there before a currency edit). */
-const otrasMonedas = (bono) => (bono.montos_generados ?? []).filter((m) => m.moneda !== bono.moneda);
+/**
+ * What the bonus generated, in the currency it is in (sell in incident S1/S3): a % of the cost in its products' cost
+ * currency, a purchase in its invoice's. One amount when it generated in one currency (`moneda_generado`), each one
+ * joined when several: amounts in different currencies are never added.
+ */
+function generadoDe(bono) {
+  const montos = bono.montos_generados ?? [];
+  if (montos.length > 1) return montos.map((m) => formatMonto(m.monto, m.moneda)).join(' y ');
+  return formatMonto(bono.monto_generado, bono.moneda_generado ?? bono.moneda);
+}
 
 /**
  * How a total amount bonus is split (S4): its stored fixed shares (iguales / costo), or a line saying the total
@@ -238,20 +246,15 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             />
             {bono && costo && (
               <p className={styles.hint}>
-                <strong>{`${formatEntero(bono.unidades)} u en facturas · ${formatMonto(bono.monto_generado, bono.moneda)} descontados del costo SI`}</strong>
+                <strong>{`${formatEntero(bono.unidades)} u en facturas · ${generadoDe(bono)} descontados del costo SI`}</strong>
               </p>
             )}
             {bono && !costo && (
               <p className={styles.hint}>
-                <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
+                <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${generadoDe(bono)} aplicados`}</strong>
               </p>
             )}
             {restante && <p className={styles.hint}>{`Tope: quedan ${restante}`}</p>}
-            {bono && otrasMonedas(bono).length > 0 && (
-              <p className={styles.hint}>{`Además ${otrasMonedas(bono)
-                .map((m) => formatMonto(m.monto, m.moneda))
-                .join(' y ')} en otra moneda (de antes de cambiarla).`}</p>
-            )}
           </section>
         )}
         {alcanceError && (
