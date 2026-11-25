@@ -1,4 +1,4 @@
-import { FORMULA_LABELS, formatEntero, formatMonto } from './sellInFormat';
+import { FORMULA_LABELS, formatEntero } from './sellInFormat';
 import SellInCompraMonto from './SellInCompraMonto';
 import styles from './SellInLineas.module.css';
 
@@ -14,7 +14,8 @@ const COLUMNAS = ['Unid.', 'Costo antes', 'Sell in unit.', 'Costo después', 'Mo
  * without scrolling the total off-screen.
  */
 export default function SellInLineas({ compra }) {
-  const { moneda } = compra;
+  // Every amount of an ARS line goes with its USD equivalent below, at the purchase's rate (owner L35).
+  const { moneda, tipo_cambio: tipoCambio } = compra;
   return (
     <div className={styles.lines}>
       <table className={styles.linesTable}>
@@ -36,11 +37,27 @@ export default function SellInLineas({ compra }) {
             </tr>
             <tr>
               <td className={styles.num}>{formatEntero(linea.cantidad)}</td>
-              <td className={`${styles.num} ${styles.before}`}>{formatMonto(linea.costo_base_unit, moneda)}</td>
-              <td className={styles.num}>{formatMonto(linea.descuento_unit, moneda)}</td>
-              <td className={`${styles.num} ${styles.after}`}>{formatMonto(linea.costo_con_sell_in_unit, moneda)}</td>
               <td className={styles.num}>
-                <SellInCompraMonto monto={linea.monto_asignado} moneda={moneda} tipoCambio={compra.tipo_cambio} />
+                <SellInCompraMonto
+                  monto={linea.costo_base_unit}
+                  moneda={moneda}
+                  tipoCambio={tipoCambio}
+                  className={styles.before}
+                />
+              </td>
+              <td className={styles.num}>
+                <SellInCompraMonto monto={linea.descuento_unit} moneda={moneda} tipoCambio={tipoCambio} />
+              </td>
+              <td className={styles.num}>
+                <SellInCompraMonto
+                  monto={linea.costo_con_sell_in_unit}
+                  moneda={moneda}
+                  tipoCambio={tipoCambio}
+                  className={styles.after}
+                />
+              </td>
+              <td className={styles.num}>
+                <SellInCompraMonto monto={linea.monto_asignado} moneda={moneda} tipoCambio={tipoCambio} />
               </td>
             </tr>
           </tbody>

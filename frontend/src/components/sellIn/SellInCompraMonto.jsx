@@ -10,13 +10,16 @@ import styles from './SellInCompraMonto.module.css';
  * @param {string|number|null} props.monto
  * @param {string} props.moneda
  * @param {string|number|null} [props.tipoCambio]
+ * @param {string} [props.className] styles the amount itself (a struck-through cost before), never the USD line: a
+ *   text decoration on the cell does not reach inside the stacked (inline-flex) amount.
  */
-export default function SellInCompraMonto({ monto, moneda, tipoCambio }) {
+export default function SellInCompraMonto({ monto, moneda, tipoCambio, className }) {
   const usd = equivalenteUsd(monto, moneda, tipoCambio);
-  if (!usd) return formatMonto(monto, moneda);
+  const texto = formatMonto(monto, moneda);
+  if (!usd) return className ? <span className={className}>{texto}</span> : texto;
   return (
     <span className={styles.apilado}>
-      <span>{formatMonto(monto, moneda)}</span>
+      <span className={className}>{texto}</span>
       <span className={styles.secundario}>{usd}</span>
     </span>
   );

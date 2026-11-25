@@ -123,7 +123,8 @@ Al abrir una compra de sell in, su panel muestra el monto y, debajo, sus líneas
   - **Costo antes** (tachado): el precio por unidad de la factura.
   - **Sell in unit.**: lo que el sell in descuenta de cada unidad.
   - **Costo después**: el precio de la factura menos el sell in. Con 200 unidades y un 1 %, cada unidad cuesta un 1 % menos que en la factura.
-  - **Monto asignado (total línea)**: el sell in de toda la línea (unidades × sell in por unidad), con su equivalente en dólares debajo si está en pesos. Es el total, no el valor por unidad.
+  - **Monto asignado (total línea)**: el sell in de toda la línea (unidades × sell in por unidad). Es el total, no el valor por unidad.
+  - En una compra en pesos, cada uno de estos montos (costo antes, sell in unit., costo después y total) lleva debajo su equivalente en dólares al tipo de cambio de la compra, por ejemplo `$ 26.856,90` con `USD 17,00 a TC 1.580` debajo.
 
 Lo que generó un bono (su panel y la columna **Avance** de su tactical) se muestra en cada moneda en que lo generó, unido con «y» si son dos, por ejemplo `USD 11.648,08 y ARS 1.200,00`.
 

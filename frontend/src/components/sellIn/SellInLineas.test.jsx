@@ -15,11 +15,31 @@ describe('SellInLineas', () => {
     expect(encabezados()).toEqual(['Unid.', 'Costo antes', 'Sell in unit.', 'Costo después', 'Monto asignado (total línea)']);
     expect(celdas(filaDe('6935364080433'))).toEqual([
       '200',
-      '$ 26.856,90',
-      '$ 268,57',
-      '$ 26.588,33',
+      '$ 26.856,90USD 17,00 a TC 1.580',
+      '$ 268,57USD 0,17 a TC 1.580',
+      '$ 26.588,33USD 16,83 a TC 1.580',
       '$ 53.713,80USD 34,00 a TC 1.580', // the total with its USD equivalent below (S3)
     ]);
+  });
+
+  it('shows each unit cost of an ARS line with its USD equivalent below, at the purchase rate (L35)', () => {
+    // Owner L35: "los costos en dólares mostrarlos en dólares". Distecna compra 28 at TC 1580: before 26,856.90 =
+    // USD 17.00, sell in 268.57 = USD 0.17, after 26,588.33 = USD 16.83.
+    render(<SellInLineas compra={COMPRA_DISTECNA} />);
+    const fila = filaDe('6935364080433');
+    for (const [ars, usd] of [
+      ['$ 26.856,90', 'USD 17,00 a TC 1.580'],
+      ['$ 268,57', 'USD 0,17 a TC 1.580'],
+      ['$ 26.588,33', 'USD 16,83 a TC 1.580'],
+    ]) {
+      expect(within(within(fila).getByText(ars).closest('td')).getByText(usd)).toBeInTheDocument();
+    }
+  });
+
+  it('shows the unit costs of a USD line alone, with no conversion line (kept)', () => {
+    render(<SellInLineas compra={COMPRA_USD_ANULADA} />);
+    const unitarias = celdas(within(filaDe('AP-1')).getAllByRole('row')[1]).slice(1, 4);
+    unitarias.forEach((texto) => expect(texto).not.toMatch(/a TC/));
   });
 
   it('puts each product on its own full-width row so the numbers fit the side panel (S5 layout)', () => {
