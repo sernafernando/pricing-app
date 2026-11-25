@@ -77,7 +77,7 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 
 ### Lotes de un producto
 
-Los lotes de sell in se retiraron: el costo es el **costo SI**. El sell in baja el costo SI a través de las facturas de compra de su período, y las ventas ya no toman unidades de ningún lote. Por eso ya no está la pestaña **Historial de lotes sell in** en la información detallada del producto de **Productos**, ni la tarjeta de lotes en el panel del producto de **Publicaciones ML**.
+Los lotes de sell in se retiraron: el costo es el **costo SI**. El sell in baja el costo SI a través de las facturas de compra de su período y del stock que el producto tenía disponible el primer día del bono (esas unidades cuentan para su tope antes que las facturas, y suman a lo que **Usó**), y las ventas ya no toman unidades de ningún lote. Por eso ya no está la pestaña **Historial de lotes sell in** en la información detallada del producto de **Productos**, ni la tarjeta de lotes en el panel del producto de **Publicaciones ML**.
 
 Para ver el costo de un producto, mirá su costo SI: la columna **Costo SI** de **Productos** (con el mouse encima, desde cuándo rige) y la fila **Costo SI** de la información detallada del producto. Ver **Productos → Filtros y columnas**.
 
