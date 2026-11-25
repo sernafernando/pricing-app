@@ -48,7 +48,9 @@ export function valoresDeEdicion(tactical) {
       topeMonto: texto(hijos[0].tope_monto),
       usadas: Math.max(...hijos.map((h) => Number(h.unidades_usadas ?? 0))),
       usados: usadosDe(hijos),
-      moneda: hijos[0].moneda,
+      // A cap is typed and stored in the tactical's currency (`tope_monto` of the PATCH; a cost bonus's own currency
+      // follows it, `moneda_de_costo`), never in the currency a % line's used amount reads in (sell in incident S1).
+      monedaTope: tactical.moneda,
       admiteTopes: hijos[0].modo_monto !== 'monto_total',
     })),
   };

@@ -119,7 +119,7 @@ export default function TacticalEditar({ tactical, onCerrar, onGuardado }) {
                     />
                   </label>
                   <label className={styles.tope}>
-                    <span>Tope {l.moneda}</span>
+                    <span>Tope {l.monedaTope}</span>
                     <input
                       className={styles.control}
                       inputMode="decimal"
