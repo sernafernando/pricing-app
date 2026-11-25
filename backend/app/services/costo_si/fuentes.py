@@ -722,21 +722,21 @@ class EnMano:
     moneda: str
 
 
-def _stock_al(db: Session, item_id: int, dia: date, inicio: date, facturas: Sequence[Factura]) -> int:
+def _stock_al(db: Session, item_id: int, dia: date, facturas: Sequence[Factura]) -> int:
     """Available stock at 00:00 of `dia`, plus the invoices before it already in the average whose goods had not
-    entered yet, minus the later ones whose goods had already entered (T1 §2). On the start day only the first: what
-    was invoiced before the start and entered after it is valued at the start cost, like the stock then."""
+    entered yet (on the start day: valued at the start cost, like the stock then), minus the invoices dated on or
+    after it whose goods had already entered (T1 §2): those average in as their own purchase, so their units are not
+    on hand too and never get a bonus twice (on hand and on the invoice)."""
     t = inicio_del_dia(dia)
     stock = disponible(db, item_id, dia)
     stock += sum(g.cantidad for g in facturas if g.fecha < dia and g.entrada is not None and g.entrada >= t)
-    if dia != inicio:
-        stock -= sum(g.cantidad for g in facturas if g.fecha >= dia and g.entrada is not None and g.entrada < t)
+    stock -= sum(g.cantidad for g in facturas if g.fecha >= dia and g.entrada is not None and g.entrada < t)
     return stock
 
 
 def _en_mano(db: Session, item_id: int, dia: date, inicio: date, facturas: Sequence[Factura], moneda: str) -> EnMano:
     costo = costo_de_inicio(db, item_id, dia, moneda) if dia == inicio else costo_lista(db, item_id, dia, moneda)
-    return EnMano(_stock_al(db, item_id, dia, inicio, facturas), costo, moneda)
+    return EnMano(_stock_al(db, item_id, dia, facturas), costo, moneda)
 
 
 _EN_MANO_GUARDADO_SQL = text("""

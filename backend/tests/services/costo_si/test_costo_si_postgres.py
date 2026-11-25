@@ -263,6 +263,24 @@ def test_a_shared_cap_counts_the_stock_on_hand_of_every_model_it_reaches(engine:
     ]
 
 
+def test_an_invoice_dated_on_the_start_whose_goods_entered_before_it_is_not_on_hand_too(engine: Engine) -> None:
+    """The 10-01 invoice (10 u at 200) entered on 09-30, so its units are in the 10-01 stock, but they average in as
+    that purchase: the stock on hand is 10, not 20, and never gets the bonus twice. With a 6 % line capped at 20
+    units, the 10 on hand use 10 (100 -> 94) and the invoice the other 10 (200 -> 188)."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.factura(engine, P, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0, supp_id=19)
+    w.factura(engine, P, date(2026, 10, 1), datetime(2026, 9, 30, 10), 10, "200", previo=10, supp_id=19)
+    w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=20)
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("94.00000"), D("94.00000")),
+        ("compra", date(2026, 10, 1), 10, 10, D("188.00000"), D("141.00000")),
+    ]
+
+
 def test_another_models_stock_on_hand_is_read_from_its_stored_step(engine: Engine) -> None:
     """Walking a shared cap reads each other model's stock on hand from its own stored step of that day (one read, no
     stock rebuild per model). The other model's stored start says 15 units: with a 25-unit cap, this product's 10 and
