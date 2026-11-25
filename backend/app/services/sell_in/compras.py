@@ -12,7 +12,8 @@ currency with the purchase's own FX rate (`tipo_cambio`, ARS per USD) when the
 currencies differ; there is no fallback to today's rate, so the frozen cost
 always matches the rate the operator typed. The PPP cost is NOT used: it is
 informational in Productos. A line can override the cost (`costo_base_unit`
-in the body), already in the purchase currency.
+in the body), already in the purchase currency. This is a purchase loaded here, by hand; a purchase a bonus
+generates takes the invoice unit price instead (`bonos._costo`, owner L38).
 
 A load freezes that cost on every line. A purchase is never edited nor deleted:
 it can only be voided (`anulada`), once; the reason goes to the audit rows.

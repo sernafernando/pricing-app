@@ -15,21 +15,32 @@
   color: var(--cf-text-primary);
 }
 
-.linesTable th {
-  padding: 8px 12px;
+/* Column headers wrap ("Monto asignado (total línea)" takes two or three short lines), so the amounts set the widths. */
+.linesTable thead th {
+  padding: 6px 8px;
   font-size: 11px;
   font-weight: var(--font-semibold);
   letter-spacing: 0.04em;
+  line-height: 1.3;
   text-align: left;
   text-transform: uppercase;
-  white-space: nowrap;
+  vertical-align: bottom;
   color: var(--cf-text-secondary);
   background: var(--cf-bg-hover);
 }
 
-.linesTable td {
-  padding: 8px 12px;
+/* The product heads its line across every column; a long description wraps instead of widening the table. */
+.linesTable .producto {
+  padding: 8px 8px 2px;
+  font-weight: var(--font-medium);
+  text-align: left;
+  overflow-wrap: anywhere;
   border-top: 1px solid var(--cf-border-default);
+}
+
+.linesTable td {
+  padding: 2px 8px 8px;
+  vertical-align: top;
 }
 
 .num {
@@ -38,8 +49,10 @@
   white-space: nowrap;
 }
 
-.linesTable th.num {
+/* `.num` keeps an amount on one line; a header must still wrap, or it widens its column past the panel. */
+.linesTable thead th.num {
   text-align: right;
+  white-space: normal;
 }
 
 .mono {

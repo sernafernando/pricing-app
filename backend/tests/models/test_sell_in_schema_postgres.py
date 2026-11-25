@@ -53,6 +53,7 @@ _MIGRATIONS = [
         "20261110_tactical_cobranza",  # the collection table the next one alters
         "20261120_tactical_sell_in_usd",  # a tactical's cost bonus in USD, its rows' USD amount and rate
         "20261122_tacticals_aprobacion",  # the 'pendiente' state of the lines (tacticals approval)
+        "20261125_sell_in_bono_usd_anulado",  # a voided USD cost bonus may be detached from its tactical
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}

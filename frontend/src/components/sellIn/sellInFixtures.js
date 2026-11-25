@@ -320,3 +320,71 @@ export const BONO_MONTO_TOTAL = {
   incluye_iva: false,
   offset_origen_id: null,
 };
+
+/**
+ * Sell in incident 2026-11-24 (production rows). Distecna compra 28 / item 22: 200 u invoiced at 26,856.90 ARS, bonus
+ * 91 at 1 %: the line's unit sell in is 268.57 and its total 53,713.80 (S2/S5, the invoice price as "Costo antes").
+ */
+export const COMPRA_DISTECNA = {
+  ...COMPRA_ARS,
+  id: 28,
+  proveedor_id: 102,
+  proveedor_nombre: 'Distecna',
+  fecha_compra: '2026-11-18',
+  moneda: 'ARS',
+  tipo: 'porcentaje',
+  porcentaje: '1.0000',
+  monto_total: '53713.80',
+  tipo_cambio: '1580.000000',
+  formula: 'manual',
+  descripcion: 'Bono de factura (bono 91)',
+  origen: 'bono_marca',
+  bono_id: 91,
+  unidades_total: 200,
+  items: [
+    {
+      id: 2801,
+      item_id: 22,
+      codigo: '6935364080433',
+      descripcion: 'Extensor de rango',
+      cantidad: 200,
+      costo_base_unit: '26856.900000',
+      monto_asignado: '53713.80',
+      descuento_unit: '268.569000',
+      costo_con_sell_in_unit: '26588.331000',
+      porcentaje: '1.00',
+    },
+  ],
+};
+
+/**
+ * Compra 25 (bonus 84, tactical 47 "DESC AIR TP", 2.5 %) once stored in its invoice's currency (S3): 393,467.14 ARS at
+ * the operation's rate 1570, i.e. USD 250.62.
+ */
+export const COMPRA_AIR_TP_ARS = {
+  ...COMPRA_DISTECNA,
+  id: 25,
+  proveedor_id: 6,
+  proveedor_nombre: 'TP-Link',
+  fecha_compra: '2026-11-06',
+  porcentaje: '2.5000',
+  monto_total: '393467.14',
+  tipo_cambio: '1570.000000',
+  descripcion: 'Bono de factura (bono 84)',
+  bono_id: 84,
+  unidades_total: 250,
+  items: [
+    {
+      id: 2501,
+      item_id: 70,
+      codigo: '1210002615013',
+      descripcion: 'Access point',
+      cantidad: 250,
+      costo_base_unit: '25929.960000',
+      monto_asignado: '162062.25',
+      descuento_unit: '648.249000',
+      costo_con_sell_in_unit: '25281.711000',
+      porcentaje: '2.50',
+    },
+  ],
+};

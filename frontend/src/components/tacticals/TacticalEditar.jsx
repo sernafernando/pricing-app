@@ -119,7 +119,7 @@ export default function TacticalEditar({ tactical, onCerrar, onGuardado }) {
                     />
                   </label>
                   <label className={styles.tope}>
-                    <span>Tope {l.moneda}</span>
+                    <span>Tope {l.monedaTope}</span>
                     <input
                       className={styles.control}
                       inputMode="decimal"
@@ -134,7 +134,7 @@ export default function TacticalEditar({ tactical, onCerrar, onGuardado }) {
                 <div className={styles.nota}>Un monto total no lleva topes: el monto total es el tope.</div>
               )}
               <div className={styles.nota}>
-                Ya usó {formatUnidades(l.usadas)} u · {formatMontoTactical(l.usado, l.moneda)}
+                Ya usó {formatUnidades(l.usadas)} u · {l.usados.map((u) => formatMontoTactical(u.monto, u.moneda)).join(' · ')}
               </div>
             </div>
           ))}

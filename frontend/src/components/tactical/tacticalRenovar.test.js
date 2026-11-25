@@ -202,6 +202,35 @@ describe('impactoDe (S8)', () => {
     expect(impactoDe(tactical, form())).toEqual({ aplicado: { USD: 20544 }, unidades: 252, tcDescartado: null });
   });
 
+  it('adds up a % cost line per currency it used, never in its stored one (sell in incident S1)', () => {
+    // Bono 98 shape: stored ARS, its products cost USD; a mixed line used ARS and USD.
+    const loyalty = {
+      ...TACTICAL_REBATE.lineas[0],
+      moneda: 'USD',
+      monto_usado: '11648.08',
+      unidades_usadas: 11954,
+      montos_usados: [{ moneda: 'USD', monto: '11648.08' }],
+    };
+    const mixta = {
+      ...loyalty,
+      id: 32,
+      moneda: 'ARS',
+      monto_usado: '9668.48',
+      unidades_usadas: 130,
+      montos_usados: [
+        { moneda: 'ARS', monto: '9668.48' },
+        { moneda: 'USD', monto: '38.43' },
+      ],
+    };
+    const tactical = { ...TACTICAL_REBATE, lineas: [loyalty, mixta] };
+
+    expect(impactoDe(tactical, edicionDe(tactical).form)).toEqual({
+      aplicado: { USD: 11686.51, ARS: 9668.48 },
+      unidades: 12084,
+      tcDescartado: null,
+    });
+  });
+
   it('warns that a set al_cobro rate is discarded only when type, currency or FX mode change', () => {
     const conTasa = { ...TACTICAL_BPS, lineas: [{ ...TACTICAL_BPS.lineas[0], tc_al_cobro: '1450.000000' }] };
 
