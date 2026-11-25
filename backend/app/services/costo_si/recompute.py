@@ -140,7 +140,7 @@ def recalcular(db: Session, item_id: int, *, motivo: str = "recalculo") -> Resul
         resultado = guardar(db, item_id, [], motivo)
         sospechas.reconciliar(db, item_id, [], "USD")  # a combo or a PC has no purchases of its own to review
         return resultado
-    pasos = calcular(entrada.inicio, entrada.compras, entrada.listas, entrada.aceptadas)
+    pasos = calcular(entrada.inicio, entrada.compras, entrada.listas, entrada.aceptadas, entrada.aplicaciones)
     resultado = guardar(db, item_id, pasos, motivo, entrada.moneda)
     sospechas.reconciliar(db, item_id, pasos, entrada.moneda)  # after the lock `guardar` takes
     return resultado

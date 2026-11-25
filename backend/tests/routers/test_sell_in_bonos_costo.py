@@ -247,6 +247,40 @@ def test_a_cost_bonus_reports_what_its_invoices_got_in_costo_si_and_its_cap(clie
         }
 
 
+def test_the_stock_on_hand_a_cost_bonus_landed_on_counts_toward_what_it_used(client, gestor, productos, db):
+    """L41: the 6 units on hand when the bonus starts (the start step) use 6 of its 10-unit cap before the invoice's 4,
+    so what it used and the cap left never drift from what costo SI took: 6 x 40 x 2 % + 4 x 50 x 2 % = USD 8.80 (a %
+    with no money cap stays in the steps' currency, sell in incident S1)."""
+    data = _crear(client, gestor, _costo(porcentaje="2", tope_unidades=10))
+    db.add(
+        CostoSiPaso(
+            item_id=4512,
+            orden=0,
+            tipo="inicio",
+            fecha=date(2026, 3, 1),
+            cantidad=6,
+            costo_neto_usd=Decimal("40"),
+            sell_ins=[{"origen": "bono", "ref": data["id"], "porcentaje": "2.0000"}],
+            stock_antes=6,
+            stock_base=6,
+            stock_despues=6,
+            moneda="USD",
+        )
+    )
+    _paso(db, 1, date(2026, 3, 2), 4, "50", [("bono", data["id"], "2.0000")], tc="1000")
+    db.add(TipoCambio(fecha=date(2026, 2, 28), moneda="USD", compra=900, venta=1000))
+    db.flush()
+
+    got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+
+    assert (got["unidades"], got["monto_generado"], got["moneda_generado"], got["tope_unidades_restantes"]) == (
+        10,
+        "8.80",
+        "USD",
+        0,
+    )
+
+
 def test_a_units_cap_that_ran_out_inside_an_invoice_counts_only_its_cap(client, gestor, productos, db):
     """Costo SI cut the cap inside the second invoice (its % covers only what was left): units stop at the cap.
     Sell in incident S1: a % with no money cap reads in its steps' currency (the USD product's), never converted."""

@@ -80,7 +80,7 @@ def test_an_ars_cost_product_averages_in_pesos_with_each_invoices_own_rate(engin
     _recalcular(engine, ARS_P)
 
     assert _compras(engine, ARS_P) == [
-        ("ARS", D("15000.00000"), None, None, D("15000.00000"), D("15000.00000")),
+        ("ARS", D("15000.00000"), None, None, D("13500.00000"), D("13500.00000")),  # less the loyalty (L39/L40)
         ("ARS", D("16000.00000"), D("1600"), "pedido", D("14400.00000"), D("14400.00000")),
         ("ARS", D("15000.00000"), D("1500"), "fecha_factura", D("13500.00000"), D("13950.00000")),
         ("ARS", D("15500.00000"), D("1550"), "manual", D("13950.00000"), D("13950.00000")),
@@ -121,7 +121,7 @@ def test_a_usd_cost_product_stays_in_usd_and_converts_only_its_ars_invoices(engi
     _recalcular(engine, USD_P)
 
     assert _compras(engine, USD_P) == [
-        ("USD", D("10.00000"), None, None, D("10.00000"), D("10.00000")),
+        ("USD", D("10.00000"), None, None, D("9.00000"), D("9.00000")),  # the start less the loyalty (L39/L40)
         ("USD", D("10.00000"), D("1500"), "fecha_factura", D("9.00000"), D("9.00000")),
         ("USD", D("12.00000"), None, "usd", D("10.80000"), D("9.90000")),
     ]
@@ -136,7 +136,8 @@ def test_an_ars_product_ignores_usd_list_history_for_its_start(engine: Engine) -
 
     _recalcular(engine, ARS_P)
 
-    assert _compras(engine, ARS_P) == [("ARS", D("15000.00000"), None, None, D("15000.00000"), D("15000.00000"))]
+    # 15000 ARS less the 10 % loyalty in force on the start day (L39/L40)
+    assert _compras(engine, ARS_P) == [("ARS", D("15000.00000"), None, None, D("13500.00000"), D("13500.00000"))]
 
 
 def test_changing_the_products_currency_rewrites_its_history_with_a_backup(engine: Engine) -> None:

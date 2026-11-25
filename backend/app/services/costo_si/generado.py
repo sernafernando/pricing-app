@@ -2,7 +2,8 @@
 
 A cost bonus (`base='costo_venta'`) and a tactical's invoice total (a `sell_in_compras` row) no longer lower each
 sale: costo SI applies them to the purchase invoices of their period. What they "used" or "generated" is read back
-from the stored purchase steps (`costo_si_pasos`, type `compra`): each step lists the sell ins it got
+from the stored steps (`costo_si_pasos`: the purchases, type `compra`, and the stock on hand a brand bonus landed on
+on its first day, types `inicio` / `sell_in`, owner L41): each step lists the sell ins it got
 (`sell_ins`: `[{origen, ref, porcentaje}]`, `origen` 'bono' for `sell_in_bonos_marca.id`, 'compra' for
 `sell_in_compras.id`), with the % already cut by the line's caps (`fuentes.aplicar_topes`).
 
@@ -16,7 +17,7 @@ from the stored purchase steps (`costo_si_pasos`, type `compra`): each step list
   never a 0 taken as real (§7).
 - A step whose cost is unknown has no amount either: NULL, left out of every sum, never a 0 (§7). Each one is logged
   with its item and date, so the gap can be found.
-- Units: a Compras sell in, the step's units. A brand bonus, the units its amount covered: the step's units x the %
+- Units: a Compras sell in, the step's units; the stock on hand, its units on hand (`stock_base`, never below 0). A brand bonus, the units its amount covered: the step's units x the %
   it got / the % it would get uncapped (its own or its model's %, or its amount per unit over the unit price; net of
   the product's VAT when it includes it; never over the purchase itself), so a cap (units or money) that ran out
   inside an invoice counts only the units it covered, and never more than its `tope_unidades`.
@@ -57,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 BONO = "bono"
 COMPRA = "compra"
+EN_MANO = ("inicio", "sell_in")  # the steps of the stock on hand a brand bonus landed on (L41)
 
 # Ids of the sell ins asked for: a list, or a select of them.
 Refs = Iterable[int] | Select
@@ -79,6 +81,7 @@ def _sell_ins(bonos: Refs | None = None, compras: Refs | None = None):
     # An unknown cost stays NULL, so the step's amount is left out of every sum (§7).
     precio = p.costo_neto_usd
     origen, ref = campo("origen"), cast(campo("ref"), Integer)
+    unidades = case((p.tipo.in_(EN_MANO), p.stock_base), else_=p.cantidad)
     pedidos = [and_(origen == o, ref.in_(ids)) for o, ids in ((BONO, bonos), (COMPRA, compras)) if ids is not None]
     return (
         select(
@@ -86,17 +89,17 @@ def _sell_ins(bonos: Refs | None = None, compras: Refs | None = None):
             ref.label("ref"),
             p.item_id.label("item_id"),
             p.fecha.label("fecha"),
-            p.cantidad.label("unidades"),
+            unidades.label("unidades"),
             porcentaje.label("porcentaje"),
             precio.label("precio"),
-            (p.cantidad * precio * porcentaje / 100).label("monto"),
+            (unidades * precio * porcentaje / 100).label("monto"),
             p.moneda.label("moneda"),
             # `tipo_cambio.venta` is a float: Numeric, so the amounts stay exact decimals.
             cast(tasa, Numeric(18, 6)).label("tc"),
         )
         .select_from(p)
         .join(s, true())
-        .where(p.tipo == "compra", or_(*pedidos))
+        .where(p.tipo.in_((COMPRA, *EN_MANO)), or_(*pedidos))
         .subquery("sell_ins_de_pasos")
     )
 

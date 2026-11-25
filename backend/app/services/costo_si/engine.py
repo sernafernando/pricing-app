@@ -1,16 +1,22 @@
 """The costo SI arithmetic (S1, S5, S9, S10), pure: no database, no clock.
 
 A product starts at its first sell-in date with the stock it had then, valued at the historical list cost of that day
-(`Inicio`). Every purchase invoice after that enters in two steps (S5, L3): its stored NET unit cost, then every sell
-in that applies to it, all as a % of that same net and added up: 100 x (1 - 0.05 - 0.036) = 91.40 (L5). Then
+(`Inicio`). Every purchase invoice after that enters in two steps (S5, L3): its stored NET unit cost, then every
+sell in that applies to it, all as a % of that same net and added up: 100 x (1 - 0.05 - 0.036) = 91.40 (L5). Then
 
     new average = (stock before x average + qty x net-net) / (stock before + qty)            (S1)
 
 Sales, returns and adjustments never change the average: they only move the stock, which the caller reads before each
 purchase (`Compra.stock_antes`). A stock of zero or less counts as zero, so the average restarts at that purchase's
 net-net (S9, L4.6). A product no sell in reaches (L21) also re-anchors at every change of its list cost (`Lista`,
-L23): from that day the average is the new list cost, and later purchases average from it. Averages are kept with 5 decimals (S10); each step uses the stored, rounded value, so the history
-can be re-derived from the stored rows alone.
+L23): from that day the average is the new list cost, and later purchases average from it. Averages are kept with 5
+decimals (S10); each step uses the stored, rounded value, so the history can be re-derived from the stored rows alone.
+
+A brand bonus also lands on the stock on hand at 00:00 of its first day (owner L39-L41: "toda aplicación que sea por
+marca tiene que aplicar [...] todo aplica igual"): on the start itself (`Inicio.sell_ins`) when it starts that day,
+else as a 'sell_in' step (`Aplicacion`) that lowers the average in force by its % (net-net = average x (1 - %)),
+before the purchases of that day. A per-unit amount (`SellIn.monto_unit`) is turned into the % of the cost it lands
+on, never above it.
 
 A suspicious purchase (owner L29) does not enter the average until a reviewer accepts it: its net unit price, before
 sell ins, is below 1/10 or above 10x the reference, the average in force right before it (after a same-day list
@@ -47,6 +53,9 @@ class SellIn:
     origen: str
     ref: int
     porcentaje: Decimal
+    # On the stock on hand only: an amount per unit in the product's currency instead of a % (`porcentaje` is then 0),
+    # turned into the % of the cost it lands on (`resolver`).
+    monto_unit: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,18 @@ class Inicio:
     fecha: date
     stock: int
     costo_usd: Optional[Decimal]  # historical list cost in force; None: there is none
+    # The brand bonuses that start on `fecha` (owner L39-L41): the starting stock gets them, as a % of its cost.
+    sell_ins: Tuple[SellIn, ...] = ()
+
+
+@dataclass(frozen=True)
+class Aplicacion:
+    """The stock on hand at 00:00 of `fecha`, the first day of the brand bonuses in `sell_ins` (owner L41): it gets
+    them at the average in force."""
+
+    fecha: date
+    stock: int  # available stock at that instant
+    sell_ins: Tuple[SellIn, ...]
 
 
 @dataclass(frozen=True)
@@ -86,7 +107,7 @@ class Compra:
 class Paso:
     """One step of a product's history: the average in force from `fecha` on, with its breakdown."""
 
-    tipo: str  # 'inicio' | 'compra' | 'lista' (L23) | 'excluido' (L29)
+    tipo: str  # 'inicio' | 'compra' | 'lista' (L23) | 'excluido' (L29) | 'sell_in' (L41)
     fecha: date
     ct_transaction: Optional[int]
     cantidad: int
@@ -122,6 +143,40 @@ def neto_neto(neto: Decimal, sell_ins: Iterable[SellIn]) -> Tuple[Decimal, Decim
     return pct, redondear(max(neto * (1 - pct / CIEN), Decimal(0)))
 
 
+def resolver(sell_ins: Iterable[SellIn], costo: Optional[Decimal]) -> Tuple[SellIn, ...]:
+    """Each sell in as a % of `costo`: a per-unit amount is the % of it it takes, never above 100; with no cost it
+    cannot be told and is left out (§7), a % is kept."""
+    out = []
+    for s in sell_ins:
+        if s.monto_unit is None:
+            out.append(s)
+        elif costo is not None and costo > 0 and s.monto_unit > 0:
+            pct = (min(s.monto_unit, costo) / costo * CIEN).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            out.append(SellIn(s.origen, s.ref, pct))
+    return tuple(out)
+
+
+def _aplicacion(a: Aplicacion, promedio: Optional[Decimal]) -> Paso:
+    sell_ins = resolver(a.sell_ins, promedio)
+    pct = sum((s.porcentaje for s in sell_ins), Decimal(0))
+    nn = neto_neto(promedio, sell_ins)[1] if promedio is not None else None
+    base = max(a.stock, 0)
+    return Paso(
+        tipo="sell_in",
+        fecha=a.fecha,
+        ct_transaction=None,
+        cantidad=a.stock,
+        costo_neto_usd=promedio,
+        sell_ins=sell_ins,
+        sell_in_pct=pct,
+        costo_neto_neto_usd=nn,
+        stock_antes=a.stock,
+        stock_base=base,
+        stock_despues=base,
+        promedio_usd=nn,
+    )
+
+
 def _anclaje(lista: Lista) -> Paso:
     costo = redondear(lista.costo_usd)
     base = max(lista.stock, 0)
@@ -146,12 +201,21 @@ def calcular(
     compras: Iterable[Compra],
     listas: Iterable[Lista] = (),
     aceptadas: AbstractSet[int] = frozenset(),
+    aplicaciones: Iterable[Aplicacion] = (),
 ) -> List[Paso]:
     """The product's history: its start, then one step per purchase in the given order, with every list-cost
-    re-anchor (L23) placed before the purchases of its own day (it is in force from 00:00). A suspicious purchase
-    (L29) whose invoice is not in `aceptadas` is an 'excluido' step that leaves the average as it was."""
-    pendientes = sorted(listas, key=lambda x: x.fecha)
-    promedio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
+    re-anchor (L23) and every bonus on the stock on hand (`aplicaciones`, L41) placed before the purchases of its own
+    day (they are in force from 00:00). A suspicious purchase (L29) whose invoice is not in `aceptadas` is an
+    'excluido' step that leaves the average as it was."""
+    # Re-anchors first on a shared day: a product with a bonus has none (L23), so it never happens on prod.
+    pendientes: List[Lista | Aplicacion] = sorted(
+        [*listas, *aplicaciones], key=lambda x: (x.fecha, isinstance(x, Aplicacion))
+    )
+    costo_inicio = redondear(inicio.costo_usd) if inicio.costo_usd is not None else None
+    sell_ins_inicio = resolver(inicio.sell_ins, costo_inicio)
+    pct_inicio = sum((s.porcentaje for s in sell_ins_inicio), Decimal(0))
+    # An unknown start cost stays unknown, bonus or not: never a 0 (§7).
+    promedio = neto_neto(costo_inicio, sell_ins_inicio)[1] if costo_inicio is not None else None
     base_inicio = max(inicio.stock, 0)
     pasos = [
         Paso(
@@ -159,9 +223,9 @@ def calcular(
             fecha=inicio.fecha,
             ct_transaction=None,
             cantidad=inicio.stock,
-            costo_neto_usd=promedio,
-            sell_ins=(),
-            sell_in_pct=Decimal(0),
+            costo_neto_usd=costo_inicio,
+            sell_ins=sell_ins_inicio,
+            sell_in_pct=pct_inicio,
             costo_neto_neto_usd=promedio,
             stock_antes=inicio.stock,
             stock_base=base_inicio,
@@ -171,7 +235,7 @@ def calcular(
     ]
     for c in compras:
         while pendientes and pendientes[0].fecha <= c.fecha:
-            pasos.append(_anclaje(pendientes.pop(0)))
+            pasos.append(_pendiente(pendientes.pop(0), promedio))
             promedio = pasos[-1].promedio_usd
         if c.cantidad <= 0:
             continue
@@ -213,5 +277,11 @@ def calcular(
                 moneda_factura=c.moneda_factura if referencia is not None else None,
             )
         )
-    pasos.extend(_anclaje(x) for x in pendientes)
+    for x in pendientes:
+        pasos.append(_pendiente(x, promedio))
+        promedio = pasos[-1].promedio_usd
     return pasos
+
+
+def _pendiente(x: Lista | Aplicacion, promedio: Optional[Decimal]) -> Paso:
+    return _aplicacion(x, promedio) if isinstance(x, Aplicacion) else _anclaje(x)

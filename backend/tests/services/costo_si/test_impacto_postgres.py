@@ -179,7 +179,8 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_costs_and_writes_nothi
             p=componente,
         )
     pq = _venta(engine, COMBO_PQ, datetime(2026, 10, 25, 12), 1, "70000")
-    ya_al_dia = _venta(engine, P, datetime(2026, 10, 20, 12), 1, "25000")  # already at its costo SI: not rewritten
+    # already at its costo SI (25 less the 3.6 % loyalty on its start, L39/L40): not rewritten
+    ya_al_dia = _venta(engine, P, datetime(2026, 10, 20, 12), 1, "24100")
     guardado = _guardado(engine)
 
     with simulacion.simular(motor) as sim:
@@ -191,9 +192,9 @@ def test_the_dry_run_predicts_every_ml_sale_the_deploy_re_costs_and_writes_nothi
     assert informe.pasos.desdes == {P: date(2026, 10, 1), Q: date(2026, 10, 1), SIN_SELL_IN: date(2026, 11, 1)}
     prediccion = {c.fila_id: (c.antes, c.despues) for c in informe.cambios if c.canal == impacto.CANAL_ML_LEGACY}
     assert prediccion == {
-        oct_: (D("80000.00"), D("50000.00")),
-        combo: (D("90000.00"), D("50000.00")),
-        pq: (D("70000.00"), D("53920.00")),
+        oct_: (D("80000.00"), D("48200.00")),
+        combo: (D("90000.00"), D("48200.00")),
+        pq: (D("70000.00"), D("53020.00")),
     }
     assert {c.mes for c in informe.cambios} == {date(2026, 10, 1), date(2026, 11, 1)}
 
@@ -266,5 +267,5 @@ def test_the_script_writes_the_report_from_the_url_in_the_environment(
     assert script.main(["--out", str(tmp_path), "--url-env", "T4_URL"]) == 0
 
     md = (tmp_path / "resumen.md").read_text()
-    assert "| ml_legacy | 2026-10 | 1 | 40000.00 | 25000.00 | -15000.00 | 0 | 0.00 |" in md
+    assert "| ml_legacy | 2026-10 | 1 | 40000.00 | 24100.00 | -15900.00 | 0 | 0.00 |" in md
     assert script.main(["--out", str(tmp_path), "--url-env", "NO_EXISTE_T4"]) == 2

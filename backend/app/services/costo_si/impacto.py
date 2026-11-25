@@ -97,7 +97,9 @@ def calcular_pasos(db: Session, items: Sequence[int]) -> Pasos:
                 entrada = fuentes.entrada(db, item_id)
                 if entrada is None:
                     continue
-                pasos = calcular_engine(entrada.inicio, entrada.compras, entrada.listas, entrada.aceptadas)
+                pasos = calcular_engine(
+                    entrada.inicio, entrada.compras, entrada.listas, entrada.aceptadas, entrada.aplicaciones
+                )
                 moneda = entrada.moneda
         except (ValueError, SQLAlchemyError) as exc:
             out.fallidos[item_id] = f"{type(exc).__name__}: {exc}"
