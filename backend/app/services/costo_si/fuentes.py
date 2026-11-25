@@ -2,8 +2,7 @@
 
 - Start (S2): the first sell-in date: the earliest brand bonus that reaches the product (`fecha_desde`) or the earliest
   purchase invoice a Compras sell in reaches. Its cost: the `tb_item_cost_list_history` row (list 1, USD) in force at
-  00:00 of that day, i.e. the last row of an earlier day, so a same-day typo corrected minutes later never counts,
-  less every brand loyalty in force that day (`loyalties_del_inicio`, owner L39/L40).
+  00:00 of that day, i.e. the last row of an earlier day, so a same-day typo corrected minutes later never counts.
 - Purchases (S4): every purchase invoice (`v_facturas_compra_vigentes`, 'FACTURA') of the product, dated by the
   supplier invoice date `ct_date`, at its net unit price. FX for ARS: a PM correction (`costo_si_factura_tc`), else
   the linked Compras operation's TC (manual first), else `tipo_cambio.venta` on the invoice date (or the latest
@@ -13,8 +12,12 @@
   included: "si algo se cargo por sell in, es sell in, no se discute", L4.2), % or per unit, on the purchases of its
   scope dated in its range, from any supplier and linked to Compras or not (S7). Without topes it is the loyalty
   (L5, L7.2: every invoice); with `tope_unidades` / `tope_monto` it covers only the first units / amount, used up over
-  the scope's invoices in date order (`aplicar_topes`). A per-unit amount is taken as the % of the invoice's net it
-  is. Sell-out lines (`sell_out_campanas`) are on the sale, never here (L12).
+  the scope's stock on hand and then its invoices in date order (`aplicar_topes`). A per-unit amount is taken as the
+  % of the invoice's net it is. A lump sum (`monto_total`) is a per-unit amount: the total over its `tope_unidades`
+  (L25). Sell-out lines (`sell_out_campanas`) are on the sale, never here (L12).
+- Stock on hand (owner L41, "todo aplica igual"): every such line also lands on the product's available stock at 00:00
+  of its first day, the starting stock when it starts with the product, valued at the average in force (`Aplicacion`).
+  Its units come first in the line's walk, before any invoice, so they use up its topes like invoice units.
 - Available stock at 00:00 of a day (S3): principal = GBP depot 1 physical minus the units of sale orders generated
   and not invoiced at that instant (pending transfers to Full, customer 2849, do not count: the units still exist).
   Full = Mercado Libre's Full available stock, NOT GBP depot 17 (L8): walked back from the next ML reading the app
@@ -32,7 +35,7 @@ import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
@@ -45,7 +48,7 @@ from app.services.combos.pcs import pcs_entre
 from app.services.pricing_calculator import moneda_de
 from app.services.costo_si import full_ml
 from app.services.costo_si import sospechas
-from app.services.costo_si.engine import Compra, Inicio, Lista, SellIn
+from app.services.costo_si.engine import Aplicacion, Compra, Inicio, Lista, SellIn
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +99,11 @@ def sin_historia(db: Session, item_id: int) -> bool:
 # the line's (`sell_in_bono_items`).
 _BONOS_SQL = text("""
     SELECT b.id, b.tipo, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
-           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto, p.iva, b.alcance
+           b.fecha_desde, b.fecha_hasta, b.moneda, b.incluye_iva, b.tope_unidades, b.tope_monto, p.iva, b.monto_total
     FROM sell_in_bonos_marca b
     JOIN productos_erp p ON p.item_id = :i
     LEFT JOIN sell_in_bono_items bi ON bi.bono_id = b.id AND bi.item_id = :i
-    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad')
+    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND b.tipo IN ('porcentaje', 'por_unidad', 'monto_total')
       AND ((b.alcance = 'marca' AND p.marca = b.marca AND (b.categoria IS NULL OR p.categoria = b.categoria))
         OR (b.alcance = 'categoria' AND p.categoria = b.categoria)
         OR (b.alcance = 'modelos' AND bi.id IS NOT NULL))
@@ -126,7 +129,7 @@ def sql_tc_factura(ct: str, fecha: str) -> str:
 # The purchase lines a capped or per-unit line walks, oldest first: every invoice of its scope (`:solo` NULL) or of
 # one product, dated in its range, with its own value per model, the product's VAT and the invoice's rate
 # (`sql_tc_factura`).
-_LINEAS_SQL = text(f"""
+_ALCANCE = """
     WITH alcance AS (
         SELECT p.item_id, COALESCE(bi.porcentaje, b.porcentaje) AS pct, COALESCE(bi.monto_unit, b.monto_unit) AS unit,
                p.iva
@@ -139,6 +142,8 @@ _LINEAS_SQL = text(f"""
         WHERE b.id = :b AND (b.alcance <> 'modelos' OR bi.id IS NOT NULL)
           AND (CAST(:solo AS integer) IS NULL OR p.item_id = :solo)
     )
+"""
+_LINEAS_SQL = text(f"""{_ALCANCE}
     SELECT ct.ct_transaction, it.item_id, sum(it.it_qty) AS cantidad,
            sum(it.it_qty * it.it_price) / NULLIF(sum(it.it_qty), 0) AS precio, min(it.curr_id) AS curr_id,
            a.pct, a.unit, a.iva,
@@ -150,6 +155,11 @@ _LINEAS_SQL = text(f"""
     WHERE ct.ct_date >= :desde AND ct.ct_date < :hasta
     GROUP BY ct.ct_transaction, ct.ct_date, it.item_id, a.pct, a.unit, a.iva
     ORDER BY ct.ct_date, min(it.it_transaction), it.item_id
+""")
+# The products a line reaches (`:solo` alone, when given), with their own value, for their starting stock.
+_ALCANCE_SQL = text(f"{_ALCANCE} SELECT item_id, pct, unit, iva FROM alcance ORDER BY item_id")
+_TC_DIA_SQL = text("""
+    SELECT venta FROM tipo_cambio WHERE moneda = 'USD' AND venta > 0 AND fecha <= :d ORDER BY fecha DESC LIMIT 1
 """)
 
 _PRIMERA_FACTURA_CON_SELL_IN_SQL = text("""
@@ -211,17 +221,11 @@ class Bono:
     incluye_iva: bool = False
     tope_unidades: Optional[int] = None
     tope_monto: Optional[Decimal] = None  # in `moneda`
-    alcance: str = "marca"  # 'marca' | 'categoria' | 'modelos'
 
     @property
     def plano(self) -> bool:
         """The loyalty's shape: a % with no topes, the same % on every invoice."""
         return self.porcentaje is not None and self.tope_unidades is None and self.tope_monto is None
-
-    @property
-    def loyalty(self) -> bool:
-        """A brand loyalty (L5, L7.2): a plain % over the whole brand. Not a per-model or capped line."""
-        return self.plano and self.alcance == "marca"
 
 
 def sin_iva(valor: Decimal, iva: Optional[Decimal], bono_id: int, item_id: int) -> Decimal:
@@ -238,27 +242,39 @@ def _dec(value) -> Optional[Decimal]:
 
 def bonos_de(db: Session, item_id: int) -> List[Bono]:
     out = []
-    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m, alicuota, alcance in db.execute(
+    for bid, tipo, pct, unit, desde, hasta, moneda, iva, tope_u, tope_m, alicuota, total in db.execute(
         _BONOS_SQL, {"i": item_id}
     ):
         if tipo == "porcentaje" and pct:
             pct = Decimal(pct)
             if iva and tope_u is None and tope_m is None:  # a plain line's % is used as it is: net of VAT here
                 pct = sin_iva(pct, _dec(alicuota), bid, item_id).quantize(Decimal("0.0001"))
-            out.append(Bono(bid, pct, desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m), alcance))
+            out.append(Bono(bid, pct, desde, hasta, None, moneda, bool(iva), tope_u, _dec(tope_m)))
         elif tipo == "por_unidad" and unit:
-            out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m), alcance))
+            out.append(Bono(bid, None, desde, hasta, Decimal(unit), moneda, bool(iva), tope_u, _dec(tope_m)))
+        elif tipo == "monto_total" and total and tope_u:
+            # L25 "si es sell in y se divide se divide por una cantidad establecida": per unit, on that many units.
+            out.append(Bono(bid, None, desde, hasta, _dec(total) / tope_u, moneda, bool(iva), tope_u, None))
+        elif tipo == "monto_total":
+            logger.warning("costo SI: bono %s is a lump sum with no tope_unidades to divide it by (L25); left out", bid)
     return out
+
+
+# The key of a product's stock on hand among the lines a bonus walks (no invoice is 0).
+EN_MANO = 0
+CUATRO = Decimal("0.0001")
 
 
 @dataclass(frozen=True)
 class Linea:
-    """One product's units on one purchase invoice, as a capped or per-unit line walks them."""
+    """One product's units on one purchase invoice, or its stock on hand on the line's first day (`ct_transaction`
+    `EN_MANO`, in the product's currency), as a capped or per-unit line walks them."""
 
     ct_transaction: int
     item_id: int
     cantidad: int
-    precio: Decimal  # unit net, in the invoice's currency
+    # Unit net, in the invoice's currency. On hand: its cost then, only to measure a money cap; None: unknown (§7).
+    precio: Optional[Decimal]
     curr_id: Optional[int]
     porcentaje: Optional[Decimal]
     monto_unit: Optional[Decimal]
@@ -266,23 +282,68 @@ class Linea:
     tc: Optional[Decimal]  # ARS per USD
 
 
-def _en_moneda(valor: Decimal, curr_id: Optional[int], moneda: str, tc: Optional[Decimal], ct: int) -> Decimal:
-    """An invoice amount in the line's currency."""
-    if MONEDAS.get(curr_id) == moneda:
+def _convertir(valor: Decimal, de: str, a: str, tc: Optional[Decimal], que: str) -> Decimal:
+    """An amount from currency `de` to `a` at `tc` (ARS per USD); no rate fails, never guessed."""
+    if de == a:
         return valor
     if not tc:
-        raise ValueError(f"invoice {ct}: no exchange rate to bring it to {moneda}")
-    return valor / tc if moneda == "USD" else valor * tc
+        raise ValueError(f"{que}: no exchange rate to bring it to {a}")
+    return valor / tc if a == "USD" else valor * tc
 
 
-def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Dict[Tuple[int, int], Decimal]:
-    """Pure: the % of each (invoice, product)'s net the line takes off, walking the lines oldest first and using up its
-    topes (units, then amount, in its currency) as it goes; a cap can run out in the middle of an invoice."""
+def _en_moneda(valor: Decimal, curr_id: Optional[int], moneda: str, tc: Optional[Decimal], ct: int) -> Decimal:
+    """An invoice amount in the line's currency."""
+    return _convertir(valor, MONEDAS.get(curr_id, ""), moneda, tc, f"invoice {ct}")
+
+
+def _sobre_stock(bono: Bono, ln: Linea, unidades: int, quedan_m: Optional[Decimal]) -> Tuple[Optional[SellIn], Decimal]:
+    """(what the stock on hand of `ln` gets, the money it uses up in the line's currency). `unidades` of its stock are
+    covered; a product with no stock gets what one unit would. A % is cut to the share of the stock covered; a per-unit
+    amount is spread over the stock, in the product's currency, for the engine to turn into a % of its average."""
+    cantidad = max(ln.cantidad, 0)
+    parte = Decimal(unidades) / cantidad if cantidad else Decimal(1)
+    unidades_m = unidades if cantidad else 1  # a product with no stock: one unit, to measure the money cap
+    if ln.porcentaje is not None:
+        pct = sin_iva(ln.porcentaje, ln.iva, bono.id, ln.item_id) if bono.incluye_iva else ln.porcentaje
+        if quedan_m is None:
+            return SellIn("bono", bono.id, (pct * parte).quantize(CUATRO, ROUND_HALF_UP)), Decimal(0)
+        if ln.precio is None or ln.precio <= 0:
+            raise ValueError(f"bono {bono.id}: product {ln.item_id} has no cost to measure its money cap on")
+        precio = _convertir(ln.precio, MONEDAS[ln.curr_id], bono.moneda, ln.tc, f"bono {bono.id}")
+        monto = min(precio * pct / 100 * unidades_m, quedan_m)
+        pct = (monto / (precio * unidades_m) * 100) * parte if unidades_m else Decimal(0)
+        return SellIn("bono", bono.id, pct.quantize(CUATRO, ROUND_HALF_UP)), (monto if cantidad else Decimal(0))
+    unit = ln.monto_unit if ln.monto_unit is not None else (bono.monto_unit or Decimal(0))
+    if bono.incluye_iva:
+        unit = sin_iva(unit, ln.iva, bono.id, ln.item_id)
+    monto = unit * unidades_m if quedan_m is None else min(unit * unidades_m, quedan_m)
+    por_unidad = monto / unidades_m * parte if unidades_m else Decimal(0)
+    en_producto = _convertir(por_unidad, bono.moneda, MONEDAS[ln.curr_id], ln.tc, f"bono {bono.id}")
+    return SellIn("bono", bono.id, Decimal(0), en_producto), (monto if cantidad else Decimal(0))
+
+
+def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Tuple[Dict[Tuple[int, int], Decimal], Dict[int, SellIn]]:
+    """Pure: walking the lines in the given order (every product's stock on hand first, then the invoices oldest first)
+    and using up the line's topes (units, then amount, in its currency) as it goes, so a cap can run out in the middle
+    of an invoice: (the % of each (invoice, product)'s net it takes off, what each product's stock on hand gets)."""
     quedan_u = bono.tope_unidades
     quedan_m = bono.tope_monto
     out: Dict[Tuple[int, int], Decimal] = {}
+    en_mano: Dict[int, SellIn] = {}
     for ln in lineas:
-        if ln.cantidad <= 0:
+        mano = ln.ct_transaction == EN_MANO
+        if ln.cantidad <= 0 and not mano:
+            continue
+        cantidad = max(ln.cantidad, 0)
+        unidades = cantidad if quedan_u is None else max(min(cantidad, quedan_u), 0)
+        if mano:
+            con_lugar = (quedan_u is None or quedan_u > 0) and (quedan_m is None or quedan_m > 0)
+            if con_lugar and (unidades or not cantidad):
+                sell_in, usado = _sobre_stock(bono, ln, unidades, quedan_m)
+                if sell_in is not None and (sell_in.porcentaje > 0 or (sell_in.monto_unit or 0) > 0):
+                    en_mano[ln.item_id] = sell_in
+                quedan_m = None if quedan_m is None else quedan_m - usado
+            quedan_u = None if quedan_u is None else quedan_u - unidades
             continue
         # A % with no money cap needs no rate: it is the same % in any currency.
         if ln.porcentaje is not None and quedan_m is None:
@@ -292,11 +353,10 @@ def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Dict[Tuple[int, int], 
         if ln.porcentaje is not None:
             por_unidad = precio * ln.porcentaje / 100
         else:
-            por_unidad = ln.monto_unit or Decimal(0)
+            por_unidad = ln.monto_unit if ln.monto_unit is not None else (bono.monto_unit or Decimal(0))
         if bono.incluye_iva:
             por_unidad = sin_iva(por_unidad, ln.iva, bono.id, ln.item_id)
-        unidades = ln.cantidad if quedan_u is None else max(min(ln.cantidad, quedan_u), 0)
-        neto = precio * ln.cantidad
+        neto = precio * cantidad
         # Never more than the purchase itself, so a money cap counts only what was really taken off.
         monto = min(por_unidad * unidades, neto)
         if quedan_m is not None:
@@ -305,8 +365,8 @@ def aplicar_topes(bono: Bono, lineas: Sequence[Linea]) -> Dict[Tuple[int, int], 
         if quedan_u is not None:
             quedan_u -= unidades
         if monto > 0 and neto > 0:
-            out[(ln.ct_transaction, ln.item_id)] = (monto / neto * 100).quantize(Decimal("0.0001"))
-    return out
+            out[(ln.ct_transaction, ln.item_id)] = (monto / neto * 100).quantize(CUATRO)
+    return out, en_mano
 
 
 def lineas_de(db: Session, bono: Bono, item_id: Optional[int]) -> List[Linea]:
@@ -326,16 +386,42 @@ def lineas_de(db: Session, bono: Bono, item_id: Optional[int]) -> List[Linea]:
     ]
 
 
-def porcentajes_de_bonos(db: Session, item_id: int, bonos: Sequence[Bono]) -> Dict[int, Dict[int, Decimal]]:
-    """{bono id: {ct_transaction: %}} for the lines that are not a plain % (capped or per unit)."""
-    out: Dict[int, Dict[int, Decimal]] = {}
+def lineas_en_mano(
+    db: Session, bono: Bono, item_id: int, solo: Optional[int], propio: Dict[date, "EnMano"]
+) -> List[Linea]:
+    """The stock on hand on `bono`'s first day of every product it reaches (of `solo` alone, when given): what it walks
+    before any invoice (owner L41: those units count toward its topes like invoice units). `propio`: `item_id`'s own,
+    by day, already read; a combo or a PC has none. None before that day comes: the stock then is not known yet."""
+    if bono.desde not in propio:
+        return []
+    tc = _dec(db.execute(_TC_DIA_SQL, {"d": bono.desde}).scalar())
+    out = []
+    for item, pct, unit, iva in db.execute(_ALCANCE_SQL, {"b": bono.id, "solo": solo}):
+        m = propio[bono.desde] if item == item_id else en_mano(db, item, bono.desde, bono.tope_monto is not None)
+        if m is not None:
+            out.append(Linea(EN_MANO, item, m.stock, m.costo, CURRS[m.moneda], _dec(pct), _dec(unit), _dec(iva), tc))
+    return out
+
+
+def porcentajes_de_bonos(
+    db: Session, item_id: int, bonos: Sequence[Bono], propio: Dict[date, "EnMano"]
+) -> Tuple[Dict[int, Dict[int, Decimal]], Dict[int, SellIn]]:
+    """({bono id: {ct_transaction: %}} for the lines that are not a plain % (capped or per unit), {bono id: what the
+    product's stock on hand gets on its first day}). `propio`: the product's stock on hand on each bono's first day that
+    has come (a bono starting later reaches no stock yet)."""
+    por_factura: Dict[int, Dict[int, Decimal]] = {}
+    sobre_stock: Dict[int, SellIn] = {}
     for b in bonos:
         if b.plano:
+            if b.desde in propio:
+                sobre_stock[b.id] = SellIn("bono", b.id, b.porcentaje)
             continue
-        compartido = b.tope_unidades is not None or b.tope_monto is not None
-        pct = aplicar_topes(b, lineas_de(db, b, None if compartido else item_id))
-        out[b.id] = {ct: v for (ct, item), v in pct.items() if item == item_id}
-    return out
+        solo = None if b.tope_unidades is not None or b.tope_monto is not None else item_id  # topes are shared
+        pct, mano = aplicar_topes(b, lineas_en_mano(db, b, item_id, solo, propio) + lineas_de(db, b, solo))
+        por_factura[b.id] = {ct: v for (ct, item), v in pct.items() if item == item_id}
+        if item_id in mano:
+            sobre_stock[b.id] = mano[item_id]
+    return por_factura, sobre_stock
 
 
 def primera_fecha_sell_in(db: Session, item_id: int, bonos: Sequence[Bono]) -> Optional[date]:
@@ -544,13 +630,6 @@ def sell_ins_de(
     return tuple(out)
 
 
-def loyalties_del_inicio(dia: date, bonos: Sequence[Bono]) -> Tuple[SellIn, ...]:
-    """The brand loyalties in force on the start day (owner L39 "aplicaselo a todo el stock viejo", L40 "aplicá a
-    todos los anteriores"): the stock on hand then gets their % too, every product, no exception. Only a loyalty (a
-    plain brand %, active, so approved): never a Compras sell in, a per-model or a capped line."""
-    return tuple(SellIn("bono", b.id, b.porcentaje) for b in bonos if b.loyalty and b.desde <= dia <= b.hasta)
-
-
 # --------------------------------------------------------------------------------------------------------- stock
 
 _FISICO_SQL = text("""
@@ -634,15 +713,70 @@ def inicio_de(db: Session, item_id: int) -> Optional[date]:
 
 
 @dataclass(frozen=True)
+class EnMano:
+    """A product's available stock at 00:00 of a day and the cost a money cap measures it at: its start cost on its
+    start day, else its list cost that day (the average is not known before the walk; no line on prod has one)."""
+
+    stock: int
+    costo: Optional[Decimal]  # None: unknown, never a 0 (§7)
+    moneda: str
+
+
+def _stock_al(db: Session, item_id: int, dia: date, inicio: date, facturas: Sequence[Factura]) -> int:
+    """Available stock at 00:00 of `dia`, plus the invoices before it already in the average whose goods had not
+    entered yet, minus the later ones whose goods had already entered (T1 §2). On the start day only the first: what
+    was invoiced before the start and entered after it is valued at the start cost, like the stock then."""
+    t = inicio_del_dia(dia)
+    stock = disponible(db, item_id, dia)
+    stock += sum(g.cantidad for g in facturas if g.fecha < dia and g.entrada is not None and g.entrada >= t)
+    if dia != inicio:
+        stock -= sum(g.cantidad for g in facturas if g.fecha >= dia and g.entrada is not None and g.entrada < t)
+    return stock
+
+
+def _en_mano(db: Session, item_id: int, dia: date, inicio: date, facturas: Sequence[Factura], moneda: str) -> EnMano:
+    costo = costo_de_inicio(db, item_id, dia, moneda) if dia == inicio else costo_lista(db, item_id, dia, moneda)
+    return EnMano(_stock_al(db, item_id, dia, inicio, facturas), costo, moneda)
+
+
+_EN_MANO_GUARDADO_SQL = text("""
+    SELECT tipo, cantidad, moneda FROM costo_si_pasos
+    WHERE item_id = :i AND fecha = :d AND tipo IN ('inicio', 'sell_in') ORDER BY orden LIMIT 1
+""")
+
+
+def en_mano(db: Session, item_id: int, dia: date, con_costo: bool = False) -> Optional[EnMano]:
+    """`item_id`'s stock on hand at 00:00 of `dia` as `entrada` reads it, None for a combo or a PC: what another model
+    of a shared cap uses up before any invoice. Read from that product's own stored step of that day (no cap moves
+    the stock, so it holds once written), so walking a scope costs one read per model; rebuilt in full only before
+    the model's first recompute with the bonus. Its cost, for a money cap only (`con_costo`)."""
+    fila = db.execute(_EN_MANO_GUARDADO_SQL, {"i": item_id, "d": dia}).first()
+    if fila is not None:
+        tipo, stock, moneda = fila
+        costo = None
+        if con_costo:
+            costo = (
+                costo_de_inicio(db, item_id, dia, moneda) if tipo == "inicio" else costo_lista(db, item_id, dia, moneda)
+            )
+        return EnMano(int(stock), costo, moneda)
+    if sin_historia(db, item_id):
+        return None
+    inicio = primera_fecha_sell_in(db, item_id, bonos_de(db, item_id)) or INICIO_SIN_SELL_IN
+    facturas = facturas_de(db, item_id, inicio - VENTANA_PREVIAS)
+    return _en_mano(db, item_id, dia, inicio, facturas, moneda_de_producto(db, item_id))
+
+
+@dataclass(frozen=True)
 class Entrada:
     inicio: Inicio
     compras: List[Compra]
     moneda: str = "USD"  # the product's cost currency every amount is in (L18)
     listas: List[Lista] = field(default_factory=list)  # list-cost re-anchors, no-sell-in products only (L23)
     aceptadas: FrozenSet[int] = frozenset()  # suspicious purchases a reviewer let in (L29), by invoice
+    aplicaciones: List[Aplicacion] = field(default_factory=list)  # bonuses on the stock on hand after the start (L41)
 
 
-def entrada(db: Session, item_id: int) -> Optional[Entrada]:
+def entrada(db: Session, item_id: int, hoy: Optional[date] = None) -> Optional[Entrada]:
     """The engine's input for `item_id`, None for a combo or a PC (S11, L22). The start is the first sell in's date (S2), or
     `INICIO_SIN_SELL_IN` for a product no sell in reaches (L21): no bonus then, so no invoice carries a discount, and
     every later list-cost change re-anchors it (L23)."""
@@ -651,19 +785,24 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
     bonos = bonos_de(db, item_id)
     primera = primera_fecha_sell_in(db, item_id, bonos)
     inicio_fecha = primera or INICIO_SIN_SELL_IN
-    t0 = inicio_del_dia(inicio_fecha)
     facturas = facturas_de(db, item_id, inicio_fecha - VENTANA_PREVIAS)
     previas = [f for f in facturas if f.fecha < inicio_fecha]
     posteriores = [f for f in facturas if f.fecha >= inicio_fecha]
-    # Invoiced before the start but entering stock after it: valued at the start cost, like the stock then.
-    sin_entrar = sum(f.cantidad for f in previas if f.entrada is not None and f.entrada >= t0)
     moneda = moneda_de_producto(db, item_id)
-    inicio = Inicio(
-        inicio_fecha,
-        disponible(db, item_id, inicio_fecha) + sin_entrar,
-        costo_de_inicio(db, item_id, inicio_fecha, moneda),
-        loyalties_del_inicio(inicio_fecha, bonos),
-    )
+    # The stock on hand on the start and on each bonus's first day (L41): a bonus starts on or after the start.
+    # A bonus starting after today reaches no stock yet: its day's recompute (the daily pass) brings it in.
+    hoy = hoy or datetime.now(ZONA).date()
+    dias = {inicio_fecha} | {b.desde for b in bonos if b.desde <= hoy}
+    propio = {d: _en_mano(db, item_id, d, inicio_fecha, facturas, moneda) for d in dias}
+    por_bono, sobre_stock = porcentajes_de_bonos(db, item_id, bonos, {d: m for d, m in propio.items() if d <= hoy})
+    # One step per first day, even when its caps left nothing: it keeps the stock the other models read (`en_mano`).
+    por_dia: Dict[date, List[SellIn]] = {d: [] for d in dias}
+    for b in bonos:
+        if b.id in sobre_stock:
+            por_dia[b.desde].append(sobre_stock[b.id])
+    arranque = propio[inicio_fecha]
+    inicio = Inicio(inicio_fecha, arranque.stock, arranque.costo, tuple(por_dia.pop(inicio_fecha, ())))
+    aplicaciones = [Aplicacion(d, propio[d].stock, tuple(v)) for d, v in sorted(por_dia.items())]
     manuales = {}
     if posteriores:
         manuales = {
@@ -671,7 +810,6 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
         }
     tasas = tipos_de_cambio(db, posteriores, moneda)
     del_compras = sell_ins_compras(db, item_id) if any(f.pedidos for f in posteriores) else []
-    por_bono = porcentajes_de_bonos(db, item_id, bonos) if posteriores else {}
     compras = []
     # The stock before each invoice is a point-in-time reconstruction (its own instant): one read per invoice.
     for n, f in enumerate(posteriores):
@@ -703,7 +841,7 @@ def entrada(db: Session, item_id: int) -> Optional[Entrada]:
             )
         )
     listas = cambios_de_lista(db, item_id, inicio, moneda) if primera is None else []
-    return Entrada(inicio, compras, moneda, listas, sospechas.aceptadas(db, item_id, compras))
+    return Entrada(inicio, compras, moneda, listas, sospechas.aceptadas(db, item_id, compras), aplicaciones)
 
 
 def _stock_antes(db: Session, item_id: int, f: Factura, antes: Sequence[Factura], despues: Sequence[Factura]) -> int:

@@ -191,18 +191,150 @@ def test_a_loyalty_pending_approval_never_lowers_the_starting_stock(engine: Engi
     assert w.pasos(engine, P)[0][4:] == (D("96.40000"), D("96.40000"))
 
 
-def test_a_per_model_line_never_lowers_the_starting_stock(engine: Engine) -> None:
-    """Only the loyalty (a plain brand %) reaches the stock on hand: a per-model % line still applies only to the
-    purchases of its scope and range (previous behavior)."""
+def test_a_loyalty_starting_after_the_start_lowers_the_stock_on_hand_on_its_first_day(engine: Engine) -> None:
+    """L41 ("todo aplica igual"): a bonus lands on the stock on hand at 00:00 of its own first day, not only on the
+    start. P starts on 10-05 (a Compras sell in on that invoice) and has 20 units at 97.50 on 10-10, when a 3.6 %
+    loyalty starts: a 'sell_in' step takes them to 97.50 x 0.964 = 93.99, then the 10-12 invoice averages in."""
+    w.producto(engine, P)
+    w.costo_lista(engine, P, datetime(2026, 9, 1), "100")
+    w.factura(engine, P, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0, supp_id=19)
+    w.factura(engine, P, date(2026, 10, 5), datetime(2026, 10, 5), 10, "100", previo=10, supp_id=19, pedido=4)
+    w.sell_in_compra(engine, P, 4, "5", date(2026, 10, 5))
+    w.factura(engine, P, date(2026, 10, 12), datetime(2026, 10, 12), 20, "100", previo=20, supp_id=19)
+    bono = w.bono_marca(engine, "3.6", date(2026, 10, 10), date(2026, 12, 31))
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 5), 10, 10, D("100.00000"), D("100.00000")),
+        ("compra", date(2026, 10, 5), 10, 10, D("95.00000"), D("97.50000")),
+        ("sell_in", date(2026, 10, 10), 20, 20, D("93.99000"), D("93.99000")),
+        ("compra", date(2026, 10, 12), 20, 20, D("96.40000"), D("95.19500")),
+    ]
+    (paso,) = w.rows(
+        engine,
+        "SELECT costo_neto_usd, sell_in_pct, sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'sell_in'",
+        i=P,
+    )
+    assert paso == (D("97.50000"), D("3.6000"), [{"origen": "bono", "ref": bono, "porcentaje": "3.6000"}])
+
+
+def test_a_per_model_line_lowers_the_starting_stock_too(engine: Engine) -> None:
+    """L41: every brand bonus lands on the stock on hand, a per-model line included: 5 % off the 10 units at 100 on
+    hand when it starts, and off the 10-08 invoice."""
     _stock_al_inicio(engine)
     w.bono_modelos(engine, [P], "porcentaje", "5", date(2026, 10, 1), date(2026, 12, 31))
 
     _recalcular(engine, P)
 
     assert w.pasos(engine, P) == [
-        ("inicio", date(2026, 10, 1), 10, 10, D("100.00000"), D("100.00000")),
-        ("compra", date(2026, 10, 8), 10, 10, D("95.00000"), D("97.50000")),
+        ("inicio", date(2026, 10, 1), 10, 10, D("95.00000"), D("95.00000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("95.00000"), D("95.00000")),
     ]
+
+
+def test_the_units_on_hand_use_up_a_unit_cap_before_any_invoice(engine: Engine) -> None:
+    """L41: 6 % capped at 15 units. The 10 units on hand when it starts take 10 of them (100 -> 94), so the 10-08
+    invoice gets it on 5 of its 10 units (3 %, 97)."""
+    _stock_al_inicio(engine)
+    w.bono_modelos(engine, [P], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("94.00000"), D("94.00000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("97.00000"), D("95.50000")),
+    ]
+
+
+def test_a_shared_cap_counts_the_stock_on_hand_of_every_model_it_reaches(engine: Engine) -> None:
+    """The same 6 % line over two models, capped at 15 units, each with 10 on hand when it starts: this product's 10
+    and 5 of the other's use it up, so this product's 10-08 invoice gets nothing."""
+    _stock_al_inicio(engine)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.factura(engine, OTRA_MARCA, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0, supp_id=19)
+    w.bono_modelos(engine, [P, OTRA_MARCA], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=15)
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("94.00000"), D("94.00000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("100.00000"), D("97.00000")),
+    ]
+
+
+def test_another_models_stock_on_hand_is_read_from_its_stored_step(engine: Engine) -> None:
+    """Walking a shared cap reads each other model's stock on hand from its own stored step of that day (one read, no
+    stock rebuild per model). The other model's stored start says 15 units: with a 25-unit cap, this product's 10 and
+    those 15 use it up, so its 10-08 invoice gets nothing (rebuilt, the other has 10 and the invoice would get 3 %)."""
+    _stock_al_inicio(engine)
+    w.producto(engine, OTRA_MARCA, marca="OTRA")
+    w.factura(engine, OTRA_MARCA, date(2026, 9, 20), datetime(2026, 9, 20), 10, "100", previo=0, supp_id=19)
+    w.bono_modelos(engine, [P, OTRA_MARCA], "porcentaje", "6", date(2026, 10, 1), date(2026, 12, 31), tope_unidades=25)
+    _recalcular(engine, OTRA_MARCA)
+    w.run(engine, "UPDATE costo_si_pasos SET cantidad = 15 WHERE item_id = :i AND tipo = 'inicio'", i=OTRA_MARCA)
+
+    _recalcular(engine, P)
+
+    assert _nn(engine, P) == [D("100.00000")]
+
+
+def test_a_bonus_starting_after_today_reaches_no_stock_yet(engine: Engine) -> None:
+    """A line loaded today that starts next month gets no step now: the stock on hand that day is not known yet, and
+    the daily pass brings it in when the day comes. The loyalty in force keeps lowering the start."""
+    _stock_al_inicio(engine)
+    w.bono_marca(engine, "3.6", date(2026, 10, 1), date(2026, 12, 31))
+    futuro = datetime.now(fuentes.ZONA).date() + timedelta(days=30)
+    w.bono_modelos(engine, [P], "porcentaje", "5", futuro, futuro + timedelta(days=30))
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("96.40000"), D("96.40000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("96.40000"), D("96.40000")),
+    ]
+
+
+def test_a_per_unit_line_takes_its_amount_off_the_starting_stock(engine: Engine) -> None:
+    """L41: USD 5 per unit of one model is 5 % of the 10 units at 100 on hand when it starts, and of the invoice."""
+    _stock_al_inicio(engine)
+    tactical = w.tactical(engine, date(2026, 10, 1), date(2026, 12, 31))
+    bono = w.bono_modelos(
+        engine, [P], "por_unidad", "5", date(2026, 10, 1), date(2026, 12, 31), moneda="USD", tactical_id=tactical
+    )
+
+    _recalcular(engine, P)
+
+    assert w.pasos(engine, P) == [
+        ("inicio", date(2026, 10, 1), 10, 10, D("95.00000"), D("95.00000")),
+        ("compra", date(2026, 10, 8), 10, 10, D("95.00000"), D("95.00000")),
+    ]
+    (inicio,) = w.rows(engine, "SELECT sell_ins FROM costo_si_pasos WHERE item_id = :i AND tipo = 'inicio'", i=P)
+    assert inicio == ([{"origen": "bono", "ref": bono, "porcentaje": "5.0000"}],)
+
+
+def test_a_lump_sum_with_no_unit_count_to_divide_it_by_is_left_out_and_logged(
+    engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """L25: a lump sum is the total over its `tope_unidades`. The schema forbids that cap on a 'monto_total' line
+    today (`ck_sell_in_bonos_marca_monto_total`), so a loaded one has nothing to divide by: it is left out and
+    logged, never guessed (§7)."""
+    _stock_al_inicio(engine)
+    w.run(
+        engine,
+        "INSERT INTO sell_in_bonos_marca (alcance, marca, tipo, monto_total, reparto_criterio, moneda, fecha_desde, "
+        "fecha_hasta, base, usuario_id) VALUES ('marca', :m, 'monto_total', 1000, 'iguales', 'ARS', :d, :h, "
+        "'costo_venta', 7)",
+        m=w.MARCA,
+        d=date(2026, 10, 1),
+        h=date(2026, 12, 31),
+    )
+
+    with caplog.at_level("WARNING", logger="app.services.costo_si.fuentes"):
+        _recalcular(engine, P)
+
+    assert w.pasos(engine, P)[0] == ("inicio", date(2026, 11, 1), 20, 20, D("100.00000"), D("100.00000"))
+    assert "is a lump sum with no tope_unidades" in caplog.text
 
 
 def test_fx_is_the_pm_correction_then_the_compras_tc_then_the_invoice_date(engine: Engine) -> None:
@@ -758,11 +890,12 @@ def test_editing_a_loyalty_recomputes_every_average_from_its_date_on_and_keeps_t
     )
     assert (drenado.productos, drenado.cambiados) == (1, 1)
     assert despues[:2] == antes[:2]  # the start and A: same rows, same timestamps
-    assert [r[2] for r in despues[2:]] == [D("18.60000"), D("20.16000")]  # 20 x (1 - 5 % - 2 %), 21 x (1 - 2 % - 2 %)
+    # L41: the 280 on hand on 11-03 at 23.81667 x (1 - 2 %); then 20 x (1 - 5 % - 2 %), 21 x (1 - 2 % - 2 %).
+    assert [r[2] for r in despues[2:]] == [D("23.34034"), D("18.60000"), D("20.16000")]
     assert all(d[3] < a[3] for d, a in zip(despues[2:], antes[2:]))  # every later average goes down
     (backup,) = w.rows(engine, "SELECT desde, pasos FROM costo_si_backups")
     assert backup[0] == date(2026, 11, 3)
-    assert [p["orden"] for p in backup[1]] == [2, 3]
+    assert [p["orden"] for p in backup[1]] == [2, 3, 4]
 
 
 # ------------------------------------------------------------------- tactical sell-in lines (orchestrator decision)
