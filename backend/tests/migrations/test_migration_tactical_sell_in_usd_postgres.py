@@ -30,15 +30,18 @@ _CONSTRAINTS = (
 )
 
 
-def _module():
-    spec = importlib.util.spec_from_file_location(f"{_REVISION}_migration", os.path.join(_VERSIONS, f"{_REVISION}.py"))
+_LATER = "20261125_sell_in_bono_usd_anulado"
+
+
+def _module(revision: str = _REVISION):
+    spec = importlib.util.spec_from_file_location(f"{revision}_migration", os.path.join(_VERSIONS, f"{revision}.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _step(engine: Engine, step: str) -> None:
-    module = _module()
+def _step(engine: Engine, step: str, revision: str = _REVISION) -> None:
+    module = _module(revision)
     with engine.connect() as conn:
         ctx = MigrationContext.configure(conn)
         with ctx.begin_transaction(), Operations.context(ctx):
@@ -55,6 +58,7 @@ def engine() -> Iterator[Engine]:
 def _clean(engine: Engine) -> Iterator[None]:
     yield
     _step(engine, "upgrade")  # every test starts from the upgraded (model) schema
+    _step(engine, "upgrade", _LATER)
     b.clean(engine)
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tactical_cobranzas"))
@@ -133,6 +137,7 @@ def test_upgrade_leaves_exactly_the_models_schema_and_is_idempotent(engine: Engi
     assert set(_definiciones(engine)) == {"ck_sell_in_bonos_marca_costo_venta"}
     _step(engine, "upgrade")
     _step(engine, "upgrade")
+    _step(engine, "upgrade", _LATER)  # it rewrites the cost CHECK the models declare (its own test checks it)
 
     assert _definiciones(engine) == del_modelo
     assert len(_columnas(engine)) == 3
